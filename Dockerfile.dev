@@ -1,0 +1,36 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Instalar dependências de desenvolvimento
+RUN apt-get update && apt-get install -y \
+    sqlite3 \
+    vim \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar dependências de desenvolvimento
+COPY requirements-dev.txt .
+RUN pip install -r requirements-dev.txt
+
+# Instalar dependências principais
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Copiar código (será sobrescrito pelo volume em dev)
+COPY src/ ./src/
+
+# Criar diretórios
+RUN mkdir -p /app/data /app/logs /app/backup
+
+# Configurações de desenvolvimento
+ENV PYTHONUNBUFFERED=1
+ENV DEBUG=true
+ENV ENV=development
+ENV DB_PATH=/app/data/caixinha_dev.db
+
+EXPOSE 8000
+
+# Comando padrão para desenvolvimento
+CMD ["python", "-m", "src.bot"]

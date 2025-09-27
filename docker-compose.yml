@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  bot-caixinha:
+    build: .
+    container_name: bot-caixinha-prod
+    restart: unless-stopped
+    volumes:
+      # Persistir banco de dados
+      - ./data:/app/data
+      # Persistir backups
+      - ./backup:/app/backup
+      # Persistir logs
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENV=production
+      - DEBUG=false
+    env_file:
+      - .env
+    
+    # Configurar logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Definir políticas de reinício
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
