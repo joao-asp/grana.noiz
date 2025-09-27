@@ -8,6 +8,10 @@ Configure suas variáveis de ambiente ou use arquivo .env
 
 import os
 from typing import List
+from dotenv import load_dotenv
+
+# Carregar variáveis do arquivo .env
+load_dotenv()
 
 # ================================
 # CONFIGURAÇÕES PRINCIPAIS
