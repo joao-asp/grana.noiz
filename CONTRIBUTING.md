@@ -1,71 +1,52 @@
-# 🤝 Contribuindo
+# 🤝 Como Contribuir
 
-Obrigado por considerar contribuir com o Bot da Caixinha!
+Obrigado por querer ajudar! É super simples:
 
-## 🚀 Como Contribuir
+## 🚀 Processo Simples
 
-### 1. Setup
+### 1. Baixe o projeto
 ```bash
-# Fork o repositório no GitHub
-
-# Clone seu fork
-git clone https://github.com/SEU_USUARIO/bot-caixinha-telegram.git
+git clone https://github.com/seu-coletivo/bot-caixinha-telegram.git
 cd bot-caixinha-telegram
+```
 
-# Configure
-cp .env.dev.example .env.dev
+### 2. Configure
+```bash
+cp .env.example .env
 # Configure seu token de teste
 ```
 
-### 2. Desenvolva
+### 3. Desenvolva
 ```bash
-# Crie uma branch
-git checkout -b feature/nome-da-funcionalidade
-
-# Desenvolva
-make dev
-
-# Teste
-make test
-```
-
-### 3. Envie
-```bash
-# Commit
+# Para mudanças pequenas (correções)
+git pull
+# faça suas mudanças...
 git add .
-git commit -m "feat: adicionar nova funcionalidade"
+git commit -m "fix: corrigir problema X"
+git push
 
-# Push
-git push origin feature/nome-da-funcionalidade
-
-# Abra um Pull Request no GitHub
+# Para mudanças grandes (novas funcionalidades)
+git checkout -b minha-funcionalidade
+# desenvolva...
+git add .
+git commit -m "feat: adicionar funcionalidade Y"
+git push origin minha-funcionalidade
+# abra um Pull Request
 ```
 
-## 📝 Padrões
+## 📝 Regras Básicas
 
-### Commits
-Use [Conventional Commits](https://conventionalcommits.org/):
-- `feat:` - Nova funcionalidade
-- `fix:` - Correção de bug
-- `docs:` - Documentação
+- **Teste** antes de enviar
+- **Mensagens claras** nos commits
+- **Uma mudança** por vez
+- **Pergunte** se tiver dúvida
 
-### Python
-- Python 3.11+
-- Docstrings para funções públicas
-- PEP 8
-
-## 🧪 Testes
-
-```bash
-make test
-```
-
-## ❓ Dúvidas
+## 🆘 Precisa de Ajuda?
 
 - Abra uma issue
-- Consulte a documentação
-- Veja exemplos no código
+- Pergunte no grupo do coletivo
+- Olhe o código existente
 
 ---
 
-**Obrigado por contribuir! 💚**
+**Lembre: código é coletivo, vamos construir juntos! 💚**
