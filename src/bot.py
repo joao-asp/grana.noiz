@@ -15,8 +15,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from . import config
-from .utils import db
+import config
+from utils import db
 
 # Configurar logging
 logging.basicConfig(
