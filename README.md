@@ -2,7 +2,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org)
 [![Docker](https://img.shields.io/badge/docker-ready-green.svg)](https://www.docker.com)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-red.svg)](LICENSE)
 
 Bot do Telegram para gerenciar contribuições mensais de coletivos de forma organizada e transparente.
 
@@ -128,7 +128,7 @@ make clean && make dev
 
 ## 📄 Licença
 
-Este projeto está sob licença MIT. Veja [LICENSE](LICENSE) para detalhes.
+Este projeto usa AGPL-3.0 - copyleft forte para proteger o trabalho coletivo. Veja [LICENSE](LICENSE) para detalhes.
 
 ---
 
