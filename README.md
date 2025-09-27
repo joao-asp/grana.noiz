@@ -6,7 +6,7 @@
 
 Bot do Telegram para gerenciar contribuições mensais de coletivos de forma organizada e transparente.
 
-## ✨ Funcionalidades
+##  Funcionalidades
 
 - 🔐 Cadastro automático de membros
 - 💰 Registro de pagamentos mensais
@@ -128,7 +128,7 @@ make clean && make dev
 
 ## 📄 Licença
 
-Este projeto usa AGPL-3.0 - copyleft forte para proteger o trabalho coletivo. Veja [LICENSE](LICENSE) para detalhes.
+Este projeto usa AGPL-3.0 - uma licença com copyleft forte para proteger o trabalho coletivo. Veja [LICENSE](LICENSE) para detalhes.
 
 ---
 
