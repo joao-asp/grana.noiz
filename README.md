@@ -1,135 +1,150 @@
-# 🤖 Bot da Caixinha Coletiva
+```markdown
+# grana.noiz
 
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org)
 [![Docker](https://img.shields.io/badge/docker-ready-green.svg)](https://www.docker.com)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-red.svg)](LICENSE)
 
-Bot do Telegram para gerenciar contribuições mensais de coletivos de forma organizada e transparente.
+Sistema baseado no Telegram para gestão financeira, transparência e automação de cobranças para coletivos e organizações autônomas.
 
-##  Funcionalidades
+## Recursos
 
-- 🔐 Cadastro automático de membros
-- 💰 Registro de pagamentos mensais
-- 📊 Consulta de dívidas individuais
-- ⏰ Cobrança automática programável
-- 🛡️ Painel administrativo
-- 🐳 Deploy com Docker
+- **Gestão de Membros:** Cadastro descentralizado via interação com o bot.
+- **Controle Financeiro:** Registro de pagamentos mensais, entradas e saídas.
+- **Transparência:** Consulta em tempo real de dívidas individuais e status da caixinha.
+- **Automação (Cron):** Rotinas programáveis de cobrança e notificação de pendências.
+- **Administração:** Painel de controle para ajustes manuais e auditoria.
+- **Infraestrutura:** Pronto para produção utilizando containers Docker.
 
-## 🚀 Início Rápido
+## Como rodar
 
-### 1. Configure o Bot no Telegram
-1. Converse com @BotFather no Telegram
-2. Use `/newbot` e siga as instruções
-3. Copie o token gerado
+### 1. Autenticação
+1. Inicie uma conversa com o [@BotFather](https://t.me/botfather) no Telegram.
+2. Envie o comando `/newbot` e siga os passos para criar a aplicação.
+3. Guarde o token gerado.
 
-### 2. Execute o Bot
+### 2. Deploy Local / Desenvolvimento
 
-**Com Docker (Recomendado):**
+**Via Docker (Recomendado):**
 ```bash
-git clone https://github.com/SEU_USUARIO/bot-caixinha-telegram.git
-cd bot-caixinha-telegram
+git clone [https://github.com/joao-asp/grana.noiz.git](https://github.com/joao-asp/grana.noiz.git)
+cd grana.noiz
 cp .env.example .env
-# Edite .env com seu token
+# Adicione seu token e ID no arquivo .env
 make dev
+
 ```
 
-**Sem Docker:**
+**Instalação nativa:**
+
 ```bash
-git clone https://github.com/SEU_USUARIO/bot-caixinha-telegram.git
-cd bot-caixinha-telegram
+git clone [https://github.com/joao-asp/grana.noiz.git](https://github.com/joao-asp/grana.noiz.git)
+cd grana.noiz
 pip install -r requirements.txt
 cp .env.example .env
-# Edite .env com seu token
+# Adicione seu token e ID no arquivo .env
 python -m src.bot
+
 ```
 
-## 📋 Comandos do Bot
+## Uso e Comandos
 
-**Para todos:**
-- `/start` - Cadastro e boas-vindas
-- `/pagar` - Marcar pagamento do mês atual  
-- `/divida` - Ver dívidas pendentes
-- `/paguei 2025-01` - Marcar mês específico
+**Usuários padrão:**
 
-**Para administradores:**
-- `/status` - Ver quem pagou no mês
-- `/divida_manual <id> <mes> <valor>` - Adicionar dívida
+* `/start` - Inicia a interação e cadastra o usuário no banco de dados.
+* `/pagar` - Registra o pagamento referente ao mês vigente.
+* `/divida` - Retorna o extrato de pendências financeiras do usuário.
+* `/paguei AAAA-MM` - Registra o pagamento de um mês retroativo ou específico (ex: `/paguei 2026-04`).
 
-## ⚙️ Configuração
+**Administradores:**
 
-### Descobrir seu ID do Telegram
-1. Converse com @userinfobot no Telegram
-2. Copie seu ID numérico para `ADMINS` no arquivo `.env`
+* `/status` - Retorna o balanço geral e quem já pagou no mês atual.
+* `/divida_manual <id> <mes> <valor>` - Insere uma pendência no sistema manualmente.
 
-### Personalizar
-Edite o arquivo `.env`:
-```bash
+## Configuração de Ambiente (.env)
+
+Para descobrir seu ID de administrador, envie uma mensagem para o [@userinfobot](https://t.me/userinfobot) e copie o ID numérico.
+
+O arquivo `.env` deve seguir esta estrutura:
+
+```env
 TELEGRAM_BOT_TOKEN=seu_token_aqui
 VALOR_CONTRIBUICAO=50.0
-ADMINS=seu_id_aqui
+ADMINS=seu_id_numerico_aqui
 COBRANCA_DIA=10
 COBRANCA_HORA=9
+
 ```
 
-## 🛠️ Comandos de Desenvolvimento
+## CLI / Makefile
+
+O projeto conta com comandos Makefile para facilitar a esteira de desenvolvimento e deploy:
 
 ```bash
-make help     # Ver todos os comandos
-make dev      # Ambiente de desenvolvimento
-make prod     # Produção
-make logs     # Ver logs
-make admin    # Painel administrativo
-make clean    # Limpar ambiente
-```
-
-## 📁 Estrutura
+make help     # Lista todos os comandos disponíveis
+make dev      # Sobe a aplicação em modo de desenvolvimento
+make prod     # Sobe a aplicação otimizada para produção
+make logs     # Exibe a saída do container
+make admin    # Acessa o terminal interativo/painel admin
+make clean    # Remove containers, imagens e volumes não utilizados
 
 ```
-bot-caixinha-telegram/
+
+## Arquitetura do Projeto
+
+```text
+grana.noiz/
 ├── src/
-│   ├── bot.py          # Bot principal
-│   ├── config.py       # Configurações
-│   ├── admin.py        # Painel admin
-│   └── utils/db.py     # Banco de dados
-├── scripts/            # Scripts úteis
-├── Makefile           # Comandos
-└── .env.example       # Template config
+│   ├── bot.py          # Lógica principal de roteamento do bot
+│   ├── config.py       # Carregamento de variáveis de ambiente
+│   ├── admin.py        # Módulo de comandos restritos
+│   └── utils/
+│       └── db.py       # Interface de persistência de dados
+├── scripts/            # Scripts de automação e setup
+├── Makefile            # Automação de tarefas (build/run)
+└── .env.example        # Template de variáveis de ambiente
+
 ```
 
-## 📊 Como Funciona
+## Rotinas Automatizadas
 
-O bot executa automaticamente todo **dia 10 às 9h**:
-1. Cria cobranças do mês para todos os membros
-2. Envia lembretes para quem tem pendências
-3. Lista dívida atual + meses em atraso
+O sistema possui um job interno que roda de acordo com as variáveis `COBRANCA_DIA` e `COBRANCA_HORA`. O comportamento padrão é:
 
-## 🆘 Problemas Comuns
+1. Geração das cobranças do mês vigente para todos os membros ativos.
+2. Disparo de notificações de lembrete para usuários com pendências em aberto.
+3. Compilação das dívidas acumuladas (mês atual + retroativos).
 
-**Bot não responde:**
+## Troubleshooting
+
+Caso o bot pare de responder ou apresente instabilidade na conexão (Polling/Webhook):
+
 ```bash
-# Verificar logs
+# Inspecionar os logs de erro
 make logs
 
-# Reiniciar
+# Fazer um hard reset no ambiente local
 make clean && make dev
+
 ```
 
-**Token inválido:**
-- Verifique o arquivo `.env`
-- Confirme o token com @BotFather
+Se o erro for de autenticação (Unauthorized), valide o `TELEGRAM_BOT_TOKEN` e garanta que o arquivo `.env` está sendo lido corretamente na raiz do projeto.
 
-## 🤝 Contribuindo
+## Contribuição
 
-1. Fork o projeto
-2. Crie uma branch: `git checkout -b feature/nova-funcionalidade`
-3. Faça commit: `git commit -m 'Adicionar funcionalidade'`
-4. Push: `git push origin feature/nova-funcionalidade`
-5. Abra um Pull Request
+1. Faça o fork do repositório.
+2. Crie sua branch de feature: `git checkout -b feature/nova-funcionalidade`
+3. Faça o commit das suas alterações: `git commit -m 'feat: adiciona nova funcionalidade'`
+4. Faça o push para a branch: `git push origin feature/nova-funcionalidade`
+5. Abra um Pull Request.
 
-## 📄 Licença
+## Licença
 
-Este projeto usa AGPL-3.0 - uma licença com copyleft forte para proteger o trabalho coletivo. Veja [LICENSE](LICENSE) para detalhes.
+Distribuído sob a licença AGPL-3.0. Veja o arquivo [LICENSE](https://www.google.com/search?q=LICENSE) para mais detalhes.
 
 ---
 
-💚 **Feito com amor para fortalecer coletivos!**
+Desenvolvido para fortalecer a autonomia e organização financeira de coletivos.
+
+```
+
+```
