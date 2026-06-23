@@ -143,5 +143,3 @@ Distribuído sob a licença AGPL-3.0. Veja o arquivo [LICENSE](https://www.googl
 ---
 
 Desenvolvido para fortalecer a autonomia e organização financeira de coletivos.
-
-```
