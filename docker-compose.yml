@@ -11,3 +11,19 @@ services:
       - ./backup:/app/backup
     env_file:
       - .env
+
+  web-caixinha:
+    build: .
+    container_name: web-caixinha
+    restart: unless-stopped
+    command: ["python", "-m", "src.web"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./backup:/app/backup
+    env_file:
+      - .env
+    depends_on:
+      - bot-caixinha

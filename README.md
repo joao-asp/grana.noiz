@@ -4,142 +4,261 @@
 [![Docker](https://img.shields.io/badge/docker-ready-green.svg)](https://www.docker.com)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-red.svg)](LICENSE)
 
-Sistema baseado no Telegram para gestão financeira, transparência e automação de cobranças para coletivos e organizações autônomas.
+Sistema baseado no Telegram para gestão financeira, transparência e automação
+de cobranças para coletivos e organizações autônomas.
 
-## Recursos
+## Funcionalidades
 
-- **Gestão de Membros:** Cadastro descentralizado via interação com o bot.
-- **Controle Financeiro:** Registro de pagamentos mensais, entradas e saídas.
-- **Transparência:** Consulta em tempo real de dívidas individuais e status da caixinha.
-- **Automação (Cron):** Rotinas programáveis de cobrança e notificação de pendências.
-- **Administração:** Painel de controle para ajustes manuais e auditoria.
-- **Infraestrutura:** Pronto para produção utilizando containers Docker.
+- 🔐 Cadastro automático de membros e vínculo por RA
+- 💰 Registro de pagamentos com auditoria (`aguardando_auditoria`)
+- 📊 Consulta de dívidas individuais e balanço ativos/ex-bolsistas
+- ⏰ Cobrança automática programável
+- 🛡️ Painel administrativo (CLI e web)
+- 🌐 Interface web mobile-first e responsiva para desktop
+- 🐳 Deploy com Docker
 
-## Como rodar
+## 🚀 Início Rápido
 
-### 1. Autenticação
-1. Inicie uma conversa com o [@BotFather](https://t.me/botfather) no Telegram.
-2. Envie o comando `/newbot` e siga os passos para criar a aplicação.
-3. Guarde o token gerado.
+### 1. Configure o Bot no Telegram
+1. Converse com @BotFather no Telegram
+2. Use `/newbot` e siga as instruções
+3. Copie o token gerado
 
-### 2. Deploy Local / Desenvolvimento
+### 2. Execute o Bot
 
-**Via Docker (Recomendado):**
+**Com Docker (Recomendado):**
 ```bash
-git clone [https://github.com/joao-asp/grana.noiz.git](https://github.com/joao-asp/grana.noiz.git)
-cd grana.noiz
+git clone https://github.com/SEU_USUARIO/bot-caixinha-telegram.git
+cd bot-caixinha-telegram
 cp .env.example .env
-# Adicione seu token e ID no arquivo .env
+# Edite .env com o token do bot, a senha do /admin e o WEB_PUBLIC_URL
 make dev
-
+# Bot: em execução | Web: http://localhost:8080
 ```
 
-**Instalação nativa:**
-
+**Sem Docker:**
 ```bash
-git clone [https://github.com/joao-asp/grana.noiz.git](https://github.com/joao-asp/grana.noiz.git)
-cd grana.noiz
+git clone https://github.com/SEU_USUARIO/bot-caixinha-telegram.git
+cd bot-caixinha-telegram
 pip install -r requirements.txt
 cp .env.example .env
-# Adicione seu token e ID no arquivo .env
-python -m src.bot
-
+# Edite .env com o token do bot, a senha do /admin e o WEB_PUBLIC_URL
+python -m src.bot     # bot
+python -m src.web     # painel em http://localhost:8080
 ```
 
-## Uso e Comandos
+## 🌐 Interface web
 
-**Usuários padrão:**
+O painel é servido por um HTTP server da biblioteca padrão (sem framework
+adicional) e lê o mesmo SQLite do bot. A interface é **mobile-first**, com
+bottom navigation no celular e sidebar + grid no desktop.
 
-* `/start` - Inicia a interação e cadastra o usuário no banco de dados.
-* `/pagar` - Registra o pagamento referente ao mês vigente.
-* `/divida` - Retorna o extrato de pendências financeiras do usuário.
-* `/paguei AAAA-MM` - Registra o pagamento de um mês retroativo ou específico (ex: `/paguei 2026-04`).
+Telas públicas:
+- **Início** — identificação por **RA** logo no topo: a pessoa vê o total em
+  aberto, os meses pendentes, o histórico e pode avisar o pagamento de um mês
+  específico (entra em auditoria).
+- **Coletivo / Transparência** — apenas pessoas **ativas**, adesão do mês e
+  saúde geral. **Não expõe nomes de quem está devendo nem valores individuais.**
+  Ex-bolsistas ficam arquivados no histórico interno e não aparecem na lista.
+- **Caixa** — arrecadação, despesas, saldo, gráfico dos últimos 12 meses.
+  As cotas recebidas aparecem de forma anônima (“Cota recebida”).
+- **Assistente** — respostas determinísticas com os dados reais (sua dívida
+  via RA, adesão agregada, saldo, Pix, próxima cobrança), sem LLM/custo externo.
 
-**Administradores:**
+### 🔒 Painel da gestão em `/admin`
 
-* `/status` - Retorna o balanço geral e quem já pagou no mês atual.
-* `/divida_manual <id> <mes> <valor>` - Insere uma pendência no sistema manualmente.
+O painel administrativo é uma **rota oculta**, sem link no site público e com
+`noindex`/`robots.txt` bloqueando indexação:
 
-## Configuração de Ambiente (.env)
+```
+http://localhost:8080/admin
+```
 
-Para descobrir seu ID de administrador, envie uma mensagem para o [@userinfobot](https://t.me/userinfobot) e copie o ID numérico.
+O login usa usuário e senha (`WEB_ADMIN_USER` / `WEB_ADMIN_PASSWORD` no
+`.env`). A sessão fica em cookie HttpOnly + SameSite=Strict, com expiração
+configurável. Após entrar, a gestão pode:
 
-O arquivo `.env` deve seguir esta estrutura:
+- aprovar/rejeitar pagamentos em auditoria;
+- gerar cobranças do mês;
+- cadastrar pessoas e vincular Telegram;
+- ver detalhes financeiros individuais;
+- lançar/remover despesas;
+- **disparar cobranças no Telegram** para bolsistas ativos com pendência e
+  Telegram vinculado (mensagem humana, sem marcar pagamento automaticamente);
+- filtrar **ex-bolsistas arquivados** e exportar a lista em CSV
+  (`/api/admin/membros/ex-bolsistas.csv`).
 
-```env
+Para ver a senha inicial gerada localmente:
+
+```bash
+grep '^WEB_ADMIN_PASSWORD=' .env
+```
+
+Para produção, prefira um hash PBKDF2:
+
+```bash
+python -c "from src.web import gerar_hash_senha; print(gerar_hash_senha('SUA_SENHA'))"
+```
+
+e coloque o resultado em `WEB_ADMIN_PASSWORD_HASH`, deixando
+`WEB_ADMIN_PASSWORD` vazio.
+
+Em produção, exponha o painel atrás de HTTPS (reverse proxy), defina
+`WEB_COOKIE_SECURE=true` e use uma senha forte. O servidor não abre CORS e
+exige `Content-Type: application/json` nas escritas.
+
+```bash
+make web          # rodar a web localmente
+make web-docker   # subir apenas o serviço web no Docker
+make web-logs     # logs da web
+```
+
+## 📋 Comandos do Bot
+
+**Para todos:**
+- `/start` - Cadastro e boas-vindas
+- `/vincular <RA>` - Vincular o Telegram ao cadastro legado da ITCP
+- `/pagar` - Solicitar baixa do mês atual (fica `aguardando_auditoria`)
+- `/divida` - Ver pendências em aberto e em auditoria
+- `/paguei 2025-01` - Solicitar baixa de um mês específico
+
+**Para administradores:**
+- `/status` - Balanço de bolsistas ativos, ex-bolsistas e auditoria
+- `/divida_manual <id> <mes> <valor>` - Adicionar dívida
+- `make admin` - Aprovar pagamentos, listar ex-bolsistas e vincular Telegram
+
+## ⚙️ Configuração
+
+### Descobrir seu ID do Telegram
+1. Converse com @userinfobot no Telegram
+2. Copie seu ID numérico para `ADMINS` no arquivo `.env`
+
+### Personalizar
+Edite o arquivo `.env`:
+```bash
 TELEGRAM_BOT_TOKEN=seu_token_aqui
-VALOR_CONTRIBUICAO=50.0
-ADMINS=seu_id_numerico_aqui
+VALOR_CONTRIBUICAO=5.0
+ADMINS=seu_id_aqui
 COBRANCA_DIA=10
 COBRANCA_HORA=9
 
+# Interface web
+WEB_HOST=0.0.0.0
+WEB_PORT=8080
+WEB_PUBLIC_URL=http://localhost:8080
+
+# Login do painel oculto /admin
+WEB_ADMIN_USER=admin
+WEB_ADMIN_PASSWORD=uma-senha-forte
+# Opcional/recomendado: hash PBKDF2 no lugar da senha em texto
+WEB_ADMIN_PASSWORD_HASH=
+WEB_SESSION_TTL_HOURS=12
+WEB_COOKIE_SECURE=false
+
+# Token opcional para scripts/curl (não é o login do painel)
+WEB_ADMIN_TOKEN=
+
+PIX_CHAVE=sua-chave-pix
 ```
 
-## CLI / Makefile
-
-O projeto conta com comandos Makefile para facilitar a esteira de desenvolvimento e deploy:
+Gere uma senha forte para o painel com:
 
 ```bash
-make help     # Lista todos os comandos disponíveis
-make dev      # Sobe a aplicação em modo de desenvolvimento
-make prod     # Sobe a aplicação otimizada para produção
-make logs     # Exibe a saída do container
-make admin    # Acessa o terminal interativo/painel admin
-make clean    # Remove containers, imagens e volumes não utilizados
-
+python -c "import secrets; print(secrets.token_urlsafe(16))"
 ```
 
-## Arquitetura do Projeto
+Depois reinicie a web para o `.env` ser recarregado.
 
-```text
-grana.noiz/
+## 📥 Carga do histórico legado
+
+Coloque os CSVs em `data/legado/` (ou informe os caminhos via `ARGS`):
+
+```bash
+make import-legado          # ambiente local (.venv quando existir)
+make import-legado-docker   # via docker-compose run
+```
+
+O script `scripts/importar_legado.py` é idempotente: localiza membros por RA
+(ou nome normalizado, quando não há RA) e faz UPSERT dos lançamentos pela
+chave `(membro_id, mes)`. Ao final, imprime um relatório com cotas pagas e
+saldo devedor separados entre ativos e ex-bolsistas.
+
+## 🛠️ Comandos de Desenvolvimento
+
+```bash
+make help             # Ver todos os comandos
+make dev              # Bot + web em desenvolvimento
+make prod             # Bot + web em produção
+make web              # Rodar só a interface web (local)
+make web-docker       # Subir só a web no Docker
+make logs             # Ver logs de bot e web
+make admin            # Painel administrativo CLI
+make import-legado    # Carga do histórico legado
+make clean            # Limpar ambiente
+```
+
+## 📁 Estrutura
+
+```
+bot-caixinha-telegram/
 ├── src/
-│   ├── bot.py          # Lógica principal de roteamento do bot
-│   ├── config.py       # Carregamento de variáveis de ambiente
-│   ├── admin.py        # Módulo de comandos restritos
-│   └── utils/
-│       └── db.py       # Interface de persistência de dados
-├── scripts/            # Scripts de automação e setup
-├── Makefile            # Automação de tarefas (build/run)
-└── .env.example        # Template de variáveis de ambiente
-
+│   ├── bot.py              # Bot principal
+│   ├── web.py              # HTTP server + API JSON
+│   ├── config.py           # Configurações
+│   ├── admin.py            # Painel admin CLI
+│   └── utils/db.py         # Banco de dados + migrações
+├── web/
+│   ├── index.html          # Shell da SPA
+│   ├── styles.css          # Design mobile-first + desktop
+│   └── app.js              # Rotas, telas e chamadas de API
+├── scripts/
+│   └── importar_legado.py  # Carga idempotente dos CSVs
+├── data/legado/            # CSVs de carga (não versionados)
+├── Makefile                # Comandos
+└── .env.example            # Template config
 ```
 
-## Rotinas Automatizadas
+## 📊 Como Funciona
 
-O sistema possui um job interno que roda de acordo com as variáveis `COBRANCA_DIA` e `COBRANCA_HORA`. O comportamento padrão é:
+O bot executa automaticamente todo **dia 10 às 9h**:
+1. Cria cobranças do mês apenas para bolsistas ativos (`ex_bolsista = 0`)
+2. Envia lembretes para quem tem pendências
+3. Lista dívida atual + meses em atraso
 
-1. Geração das cobranças do mês vigente para todos os membros ativos.
-2. Disparo de notificações de lembrete para usuários com pendências em aberto.
-3. Compilação das dívidas acumuladas (mês atual + retroativos).
+O bot e a web compartilham o mesmo SQLite em modo **WAL**, permitindo leitura
+concorrente enquanto um dos processos grava.
 
-## Troubleshooting
+Ex-bolsistas permanecem no banco para preservar o histórico, mas **não**
+recebem novas cobranças automáticas. Pagamentos informados pelo bot ficam
+como `aguardando_auditoria` até a conferência no painel admin.
 
-Caso o bot pare de responder ou apresente instabilidade na conexão (Polling/Webhook):
+## 🆘 Problemas Comuns
 
+**Bot não responde:**
 ```bash
-# Inspecionar os logs de erro
+# Verificar logs
 make logs
 
-# Fazer um hard reset no ambiente local
+# Reiniciar
 make clean && make dev
-
 ```
 
-Se o erro for de autenticação (Unauthorized), valide o `TELEGRAM_BOT_TOKEN` e garanta que o arquivo `.env` está sendo lido corretamente na raiz do projeto.
+**Token inválido:**
+- Verifique o arquivo `.env`
+- Confirme o token com @BotFather
 
-## Contribuição
+## 🤝 Contribuindo
 
-1. Faça o fork do repositório.
-2. Crie sua branch de feature: `git checkout -b feature/nova-funcionalidade`
-3. Faça o commit das suas alterações: `git commit -m 'feat: adiciona nova funcionalidade'`
-4. Faça o push para a branch: `git push origin feature/nova-funcionalidade`
-5. Abra um Pull Request.
+1. Fork o projeto
+2. Crie uma branch: `git checkout -b feature/nova-funcionalidade`
+3. Faça commit: `git commit -m 'Adicionar funcionalidade'`
+4. Push: `git push origin feature/nova-funcionalidade`
+5. Abra um Pull Request
 
-## Licença
+## 📄 Licença
 
-Distribuído sob a licença AGPL-3.0. Veja o arquivo [LICENSE](https://www.google.com/search?q=LICENSE) para mais detalhes.
+Este projeto usa AGPL-3.0 - uma licença com copyleft forte para proteger o trabalho coletivo. Veja [LICENSE](LICENSE) para detalhes.
 
 ---
 
-Desenvolvido para fortalecer a autonomia e organização financeira de coletivos.
+💚 **Feito com amor para fortalecer coletivos!**
