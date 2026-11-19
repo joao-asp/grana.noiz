@@ -12,7 +12,7 @@ Rotas principais:
     GET  /api/membros           lista de membros (campos sensíveis só p/ admin)
     GET  /api/membros/por-ra/RA  área do membro
     GET  /api/caixa             livro caixa e série mensal
-    POST /api/solicitar-pagamento
+    POST /api/solicitar-pagamento   {ra, valor, data, observacao}
     POST /api/assistente
     *    /api/admin/*          exigem X-Admin-Token
 
@@ -92,6 +92,21 @@ def _serializar_detalhe_publico(detalhe: Dict[str, Any]) -> Dict[str, Any]:
     return saida
 
 
+def _listar_conferencia() -> List[Dict[str, Any]]:
+    """
+    Fila de conferência da gestão: avisos por valor (abatimento FIFO) e
+    cotas marcadas pelo bot (``tipo`` distingue os dois).
+    """
+    itens: List[Dict[str, Any]] = []
+    for row in db.listar_solicitacoes_valor_aguardando():
+        itens.append({**row, "tipo": "valor", "mes": None,
+                      "valor_pago": float(row["valor"])})
+    for row in db.listar_pagamentos_aguardando_auditoria():
+        itens.append({**dict(row), "tipo": "mes"})
+    itens.sort(key=lambda i: (i.get("data_pagamento") or "", i.get("nome") or ""))
+    return itens
+
+
 def _notificar_admins(texto: str) -> None:
     """
     Envia aviso ao Telegram em background (sem bloquear a request HTTP).
@@ -151,16 +166,18 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
             p for p in detalhe["pagamentos"]
             if p["status_pagamento"] == db.STATUS_PENDENTE
         ]
-        em_auditoria = [
+        em_conferencia = [
             p for p in detalhe["pagamentos"]
             if p["status_pagamento"] == db.STATUS_AGUARDANDO_AUDITORIA
         ]
-        if not pendentes and not em_auditoria:
+        avisos = detalhe.get("solicitacoes_aguardando", [])
+        aguardando = len(em_conferencia) + len(avisos)
+        if not pendentes and not aguardando:
             resposta = f"{detalhe['nome']}, você está em dia. 🎉"
         else:
             linhas = [
                 f"• {_mes_label(p['mes'])}: {_brl(float(p['valor_pago']))}"
-                for p in pendentes[:12]
+                for p in sorted(pendentes, key=lambda p: p["mes"])[:12]
             ]
             resposta = (
                 f"{detalhe['nome']}, você tem {len(pendentes)} cota(s) em aberto "
@@ -168,10 +185,10 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
             )
             if linhas:
                 resposta += "\n" + "\n".join(linhas)
-            if em_auditoria:
+            if aguardando:
                 resposta += (
-                    f"\n\nHá também {len(em_auditoria)} solicitação(ões) "
-                    "aguardando auditoria."
+                    f"\n\nHá também {aguardando} aviso(s) de pagamento "
+                    "aguardando confirmação."
                 )
         return {"resposta": resposta}
 
@@ -184,16 +201,16 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
         confirmadas = sum(
             1 for r in ativos if r["status_pagamento"] == db.STATUS_PAGO
         )
-        em_auditoria = sum(
+        em_conferencia = sum(
             1 for r in ativos
             if r["status_pagamento"] == db.STATUS_AGUARDANDO_AUDITORIA
         )
-        em_acompanhamento = max(0, len(ativos) - confirmadas - em_auditoria)
+        em_acompanhamento = max(0, len(ativos) - confirmadas - em_conferencia)
         return {
             "resposta": (
                 f"Em {_mes_label(mes)}, {confirmadas} de {len(ativos)} cotas "
                 f"ativas já foram confirmadas.\n"
-                f"{em_auditoria} estão em auditoria e {em_acompanhamento} "
+                f"{em_conferencia} aguardam confirmação e {em_acompanhamento} "
                 "seguem em acompanhamento pela gestão.\n\n"
                 "A gestão conversa individualmente com cada pessoa; não "
                 "expomos nomes ou dívidas aqui. 💚"
@@ -229,8 +246,9 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
             "resposta": (
                 f"Chave Pix oficial: {chave}.\n"
                 f"A cota mensal é {_brl(config.VALOR_CONTRIBUICAO)}. "
-                "Depois de pagar, use \"Avisar pagamento\" no seu espaço para "
-                "entrar na fila de auditoria."
+                "Depois de pagar, use \"Avisar pagamento\" no seu espaço e informe "
+                "só o valor: a gestão confirma e o valor abate suas cotas "
+                "mais antigas primeiro."
             )
         }
 
@@ -865,18 +883,11 @@ class WebHandler(BaseHTTPRequestHandler):
             self._api_admin_disparar_telegram()
             return
 
-        if path == "/api/admin/auditoria" and method == "GET":
+        if path in ("/api/admin/conferencia", "/api/admin/auditoria") \
+                and method == "GET":
             if not self._require_admin():
                 return
-            self._send_json(
-                200,
-                {
-                    "auditoria": [
-                        dict(row)
-                        for row in db.listar_pagamentos_aguardando_auditoria()
-                    ]
-                },
-            )
+            self._send_json(200, {"conferencia": _listar_conferencia()})
             return
 
         if path == "/api/admin/cobrancas" and method == "POST":
@@ -918,11 +929,11 @@ class WebHandler(BaseHTTPRequestHandler):
             self._api_admin_vincular(int(match.group(1)))
             return
 
-        match = re.fullmatch(r"/api/admin/auditoria/(\d+)", path)
+        match = re.fullmatch(r"/api/admin/(?:conferencia|auditoria)/(\d+)", path)
         if match and method == "POST":
             if not self._require_admin():
                 return
-            self._api_admin_auditoria_item(int(match.group(1)))
+            self._api_admin_conferencia_item(int(match.group(1)))
             return
 
         if path == "/api/admin/despesas" and method == "POST":
@@ -950,7 +961,7 @@ class WebHandler(BaseHTTPRequestHandler):
         resumo = db.obter_resumo_financeiro()
         resumo_mes = db.obter_resumo_mes(mes)
         caixa = db.obter_resumo_caixa(mes)
-        auditoria = db.listar_pagamentos_aguardando_auditoria()
+        conferencia = _listar_conferencia()
         contagens = db.contar_membros_por_tipo()
         admin = self._is_admin()
 
@@ -977,7 +988,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 "pago_mes": caixa["pago_mes"],
                 "despesas_mes": caixa["despesas_mes"],
             },
-            "auditoria": {"total": len(auditoria)},
+            "conferencia": {"total": len(conferencia)},
         }
         if admin:
             resposta["membros"]["ex_bolsistas"] = contagens["ex_bolsistas"]
@@ -1000,7 +1011,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 "id": m["id"],
                 "nome": m["nome"],
                 "ex_bolsista": False,
-                "status_vinculo": m.get("status_vinculo") or "ATIVO",
+                "recem_ingresso": bool(m.get("recem_ingresso")),
             }
             for m in membros
         ]
@@ -1014,11 +1025,14 @@ class WebHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"membro": _serializar_detalhe_publico(detalhe)})
 
     def _api_solicitar_pagamento(self) -> None:
+        """
+        Aviso de pagamento por valor. Não escolhe mês: quando a gestão
+        confirma, o valor abate as cotas mais antigas primeiro (FIFO).
+        """
         dados = self._read_json()
         if dados is None:
             return
         ra = str(dados.get("ra") or "").strip()
-        mes = str(dados.get("mes") or db.buscar_mes_atual())
         if not ra:
             self._send_json(400, {"erro": "Informe o RA"})
             return
@@ -1026,50 +1040,48 @@ class WebHandler(BaseHTTPRequestHandler):
         if detalhe is None:
             self._send_json(404, {"erro": "RA não encontrado"})
             return
-        if detalhe.get("ex_bolsista") and mes == db.buscar_mes_atual():
-            self._send_json(
-                409,
-                {
-                    "erro": (
-                        "Você consta como ex-bolsista e não recebe novas "
-                        "cobranças. Para pendências históricas, fale com a gestão."
-                    ),
-                    "motivo": "ex_bolsista",
-                },
-            )
-            return
 
-        ok, motivo = db.registrar_solicitacao_pagamento_membro(
-            int(detalhe["id"]), mes, origem="web"
+        valor_bruto = str(dados.get("valor") or "").strip().replace(",", ".")
+        data_pagamento = str(dados.get("data") or "").strip() or None
+        observacao = str(dados.get("observacao") or "").strip() or None
+
+        ok, motivo, _ = db.registrar_solicitacao_valor(
+            int(detalhe["id"]),
+            valor_bruto,
+            data_pagamento,
+            observacao,
+            origem="web",
         )
         if not ok:
+            em_aberto = _brl(float(detalhe.get("saldo_devedor") or 0))
             mensagens = {
-                "ja_pago": "Essa cota já está confirmada como paga.",
-                "ja_aguardando": "Essa cota já está aguardando auditoria.",
-                "mes_invalido": "Mês inválido.",
-                "erro_banco": "Erro temporário ao registrar.",
+                "valor_invalido": "Informe um valor maior que zero.",
+                "data_invalida": "Data inválida. Use uma data de hoje ou anterior.",
+                "sem_pendencia": "Você não tem cotas em aberto. Está tudo certo! 💙",
+                "valor_acima": f"O valor é maior que o total em aberto ({em_aberto}).",
+                "erro_banco": "Erro temporário ao registrar. Tente de novo.",
             }
             self._send_json(
-                409,
+                409 if motivo in ("sem_pendencia", "valor_acima") else 400,
                 {"erro": mensagens.get(motivo, "Não foi possível registrar."),
                  "motivo": motivo},
             )
             return
 
         _notificar_admins(
-            "Nova solicitação de auditoria (web)\n"
+            "Novo aviso de pagamento (web)\n"
             f"Membro: {detalhe['nome']}\n"
             f"RA: {detalhe.get('ra') or '—'}\n"
-            f"Mês: {mes}\n"
-            f"Valor: {_brl(config.VALOR_CONTRIBUICAO)}\n"
-            "Confira no painel web ou no painel admin."
+            f"Valor: {_brl(float(valor_bruto))}\n"
+            f"Data: {data_pagamento or datetime.now().strftime('%Y-%m-%d')}\n"
+            "Confira no painel da gestão."
         )
         atualizado = db.obter_detalhe_membro_por_ra(ra)
         self._send_json(
             200,
             {
                 "ok": True,
-                "mensagem": "Solicitação registrada e enviada para auditoria.",
+                "mensagem": "Aviso enviado! A gestão confere e confirma em breve.",
                 "membro": _serializar_detalhe_publico(atualizado or detalhe),
             },
         )
@@ -1235,13 +1247,27 @@ class WebHandler(BaseHTTPRequestHandler):
             return
         self._send_json(200, {"ok": True})
 
-    def _api_admin_auditoria_item(self, pagamento_id: int) -> None:
+    def _api_admin_conferencia_item(self, item_id: int) -> None:
         dados = self._read_json()
         if dados is None:
             return
         aprovado = bool(dados.get("aprovar", True))
         observacao = str(dados.get("observacao") or "").strip() or None
-        if not db.aprovar_pagamento(pagamento_id, aprovado, observacao):
+        tipo = str(dados.get("tipo") or "mes")
+
+        if tipo == "valor":
+            resultado = db.resolver_solicitacao_valor(
+                item_id, aprovado, observacao
+            )
+            if resultado is None:
+                self._send_json(
+                    404, {"erro": "Aviso não encontrado ou já conferido"}
+                )
+                return
+            self._send_json(200, {"ok": True, **resultado})
+            return
+
+        if not db.aprovar_pagamento(item_id, aprovado, observacao):
             self._send_json(404, {"erro": "Pagamento não encontrado"})
             return
         self._send_json(200, {"ok": True, "aprovado": aprovado})
