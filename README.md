@@ -230,7 +230,20 @@ concorrente enquanto um dos processos grava.
 
 Ex-bolsistas permanecem no banco para preservar o histórico, mas **não**
 recebem novas cobranças automáticas. Pagamentos informados pelo bot ficam
-como `aguardando_auditoria` até a conferência no painel admin.
+como `aguardando_auditoria` (exibido como "aguardando confirmação") até a
+conferência no painel admin.
+
+### Aviso de pagamento por valor (web)
+
+No site, a pessoa consulta o RA, vê os **meses em aberto** e o **total em
+aberto** e avisa o pagamento informando apenas **data**, **valor** e uma
+observação opcional — sem escolher mês. O aviso entra na fila de conferência
+do painel `/admin`; quando a gestão confirma, o valor abate o saldo devedor em
+ordem **FIFO** (cotas mais antigas primeiro). Se o valor não cobre a última
+cota, ela segue pendente só com o que falta (ex.: deve R$ 15,00 em 3 meses e
+paga R$ 10,00 → 2 meses quitados, 1 pendente de R$ 5,00).
+
+O tema (claro/escuro) é salvo em `localStorage` (`grana_theme`).
 
 ## 🆘 Problemas Comuns
 
