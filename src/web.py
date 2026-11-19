@@ -180,7 +180,7 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
                 for p in sorted(pendentes, key=lambda p: p["mes"])[:12]
             ]
             resposta = (
-                f"{detalhe['nome']}, você tem {len(pendentes)} cota(s) em aberto "
+                f"{detalhe['nome']}, você tem {len(pendentes)} mês(es) em aberto "
                 f"({_brl(detalhe.get('saldo_devedor', 0))})."
             )
             if linhas:
@@ -194,7 +194,7 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
 
     if any(
         k in texto
-        for k in ("quem nao pagou", "pendentes", "atrasad", "inadimpl", "adesao")
+        for k in ("quem nao pagou", "pendentes", "atrasad", "inadimpl", "adesao", "pagamentos")
     ):
         status_mes = db.buscar_status_mes(mes)
         ativos = [r for r in status_mes if not int(r["ex_bolsista"])]
@@ -205,15 +205,11 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
             1 for r in ativos
             if r["status_pagamento"] == db.STATUS_AGUARDANDO_AUDITORIA
         )
-        em_acompanhamento = max(0, len(ativos) - confirmadas - em_conferencia)
+        txt_pag = "1 pagamento feito este mês" if confirmadas == 1 else f"{confirmadas} pagamentos feitos este mês"
         return {
             "resposta": (
-                f"Em {_mes_label(mes)}, {confirmadas} de {len(ativos)} cotas "
-                f"ativas já foram confirmadas.\n"
-                f"{em_conferencia} aguardam confirmação e {em_acompanhamento} "
-                "seguem em acompanhamento pela gestão.\n\n"
-                "A gestão conversa individualmente com cada pessoa; não "
-                "expomos nomes ou dívidas aqui. 💚"
+                f"Em {_mes_label(mes)}: {txt_pag}."
+                + (f"\n{em_conferencia} aviso(s) aguardam confirmação." if em_conferencia else "")
             )
         }
 
@@ -221,10 +217,10 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
         caixa = db.obter_resumo_caixa(mes)
         return {
             "resposta": (
-                f"Arrecadação histórica de cotas: {_brl(caixa['total_pago'])}.\n"
+                f"Arrecadação histórica: {_brl(caixa['total_pago'])}.\n"
                 f"Despesas registradas: {_brl(caixa['total_despesas'])}.\n"
                 f"Saldo do livro caixa: {_brl(caixa['saldo'])}.\n"
-                f"No mês de {_mes_label(mes)}: {_brl(caixa['pago_mes'])} arrecadados."
+                f"No mês de {_mes_label(mes)}: {_brl(caixa['pago_mes'])} recebidos."
             )
         }
 
@@ -233,7 +229,7 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
         return {
             "resposta": (
                 f"Ex-bolsistas: {int(resumo['membros'])} cadastro(s), "
-                f"{int(resumo['pagos'])} cota(s) paga(s) "
+                f"{int(resumo['pagos'])} pagamento(s) feito(s) "
                 f"({_brl(resumo['valor_pago'])}) e "
                 f"{int(resumo['pendentes'])} pendência(s) histórica(s) "
                 f"({_brl(resumo['saldo_devedor'])})."
@@ -245,18 +241,17 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
         return {
             "resposta": (
                 f"Chave Pix oficial: {chave}.\n"
-                f"A cota mensal é {_brl(config.VALOR_CONTRIBUICAO)}. "
-                "Depois de pagar, use \"Avisar pagamento\" no seu espaço e informe "
-                "só o valor: a gestão confirma e o valor abate suas cotas "
-                "mais antigas primeiro."
+                f"A contribuição mensal é {_brl(config.VALOR_CONTRIBUICAO)}. "
+                "Depois de pagar, use \"Avisar pagamento\" na tela inicial e informe "
+                "o valor: a gestão confirma e o valor abate primeiro os meses mais antigos."
             )
         }
 
     if any(k in texto for k in ("proxima", "cobranca", "vencimento", "dia")):
         return {
             "resposta": (
-                f"As cobranças automáticas são criadas todo dia "
-                f"{config.COBRANCA_DIA} do mês. O valor da cota é "
+                f"As cobranças são geradas todo dia "
+                f"{config.COBRANCA_DIA} do mês. O valor mensal é "
                 f"{_brl(config.VALOR_CONTRIBUICAO)}."
             )
         }
@@ -266,7 +261,7 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
             "resposta": (
                 "Posso responder sobre:\n"
                 "• quanto você deve (informe seu RA)\n"
-                "• quantas cotas estão confirmadas no mês\n"
+                "• pagamentos feitos neste mês\n"
                 "• saldo e arrecadação do caixa\n"
                 "• pendências de ex-bolsistas\n"
                 "• Pix e próxima cobrança"
@@ -278,9 +273,8 @@ def responder_assistente(mensagem: str, ra: Optional[str] = None) -> Dict[str, A
     return {
         "resposta": (
             f"Resumo de {_mes_label(mes)}: {int(resumo['ativos']['membros'])} "
-            f"ativos, {int(resumo['ativos']['pendentes'])} cota(s) pendente(s) "
-            f"no histórico ativo e saldo de {_brl(caixa['saldo'])} no livro caixa.\n\n"
-            "Pergunte sobre dívida, pendentes, saldo, Pix ou ex-bolsistas."
+            f"pessoas na ITCP e saldo de {_brl(caixa['saldo'])} no livro caixa.\n\n"
+            "Pergunte sobre dívida, pagamentos do mês, saldo ou Pix."
         )
     }
 
@@ -808,6 +802,10 @@ class WebHandler(BaseHTTPRequestHandler):
             self._api_solicitar_pagamento()
             return
 
+        if path == "/api/reembolsos" and method == "POST":
+            self._api_solicitar_reembolso()
+            return
+
         if path == "/api/assistente" and method == "POST":
             dados = self._read_json()
             if dados is None:
@@ -890,6 +888,22 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"conferencia": _listar_conferencia()})
             return
 
+        if path == "/api/admin/reembolsos" and method == "GET":
+            if not self._require_admin():
+                return
+            status = (query.get("status") or [None])[0]
+            self._send_json(
+                200, {"reembolsos": db.listar_pedidos_reembolso(status=status)}
+            )
+            return
+
+        match = re.fullmatch(r"/api/admin/reembolsos/(\d+)", path)
+        if match and method == "POST":
+            if not self._require_admin():
+                return
+            self._api_admin_reembolso_item(int(match.group(1)))
+            return
+
         if path == "/api/admin/cobrancas" and method == "POST":
             if not self._require_admin():
                 return
@@ -962,6 +976,7 @@ class WebHandler(BaseHTTPRequestHandler):
         resumo_mes = db.obter_resumo_mes(mes)
         caixa = db.obter_resumo_caixa(mes)
         conferencia = _listar_conferencia()
+        reembolsos_pendentes = db.listar_pedidos_reembolso(status="aguardando")
         contagens = db.contar_membros_por_tipo()
         admin = self._is_admin()
 
@@ -970,6 +985,10 @@ class WebHandler(BaseHTTPRequestHandler):
             "valor_contribuicao": config.VALOR_CONTRIBUICAO,
             "pix_chave": config.PIX_CHAVE,
             "cobranca_dia": config.COBRANCA_DIA,
+            "frentes_reembolso": {
+                "equipes": list(db.FRENTES_EQUIPES),
+                "gepas": list(db.FRENTES_GEPAS),
+            },
             "admin_habilitado": _admin_habilitado(),
             "admin_login_configurado": _login_configurado(),
             "telegram_habilitado": bool(
@@ -989,6 +1008,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 "despesas_mes": caixa["despesas_mes"],
             },
             "conferencia": {"total": len(conferencia)},
+            "reembolsos": {"pendentes": len(reembolsos_pendentes)},
         }
         if admin:
             resposta["membros"]["ex_bolsistas"] = contagens["ex_bolsistas"]
@@ -1057,7 +1077,7 @@ class WebHandler(BaseHTTPRequestHandler):
             mensagens = {
                 "valor_invalido": "Informe um valor maior que zero.",
                 "data_invalida": "Data inválida. Use uma data de hoje ou anterior.",
-                "sem_pendencia": "Você não tem cotas em aberto. Está tudo certo! 💙",
+                "sem_pendencia": "Você não tem meses em aberto. Está tudo certo!",
                 "valor_acima": f"O valor é maior que o total em aberto ({em_aberto}).",
                 "erro_banco": "Erro temporário ao registrar. Tente de novo.",
             }
@@ -1085,6 +1105,108 @@ class WebHandler(BaseHTTPRequestHandler):
                 "membro": _serializar_detalhe_publico(atualizado or detalhe),
             },
         )
+
+    def _api_solicitar_reembolso(self) -> None:
+        """
+        Registra pedido de reembolso de gasto do cotidiano da ITCP (Equipes ou GEPAs).
+        """
+        dados = self._read_json()
+        if dados is None:
+            return
+
+        ra = str(dados.get("ra") or "").strip()
+        detalhe = db.obter_detalhe_membro_por_ra(ra) if ra else None
+        membro_id = int(detalhe["id"]) if detalhe else None
+        solicitante = str(dados.get("solicitante") or "").strip() or (
+            str(detalhe["nome"]) if detalhe else ""
+        )
+        pix_chave = str(dados.get("pix_chave") or "").strip()
+
+        frente = str(dados.get("frente") or "").strip()
+        descricao = str(dados.get("descricao") or "").strip()
+        valor_bruto = str(dados.get("valor") or "").strip().replace(",", ".")
+        data_gasto = str(dados.get("data") or "").strip() or None
+        comprovante = str(dados.get("comprovante") or "").strip() or None
+        ja_pago = bool(dados.get("ja_pago"))
+
+        ok, motivo, pedido_id = db.registrar_pedido_reembolso(
+            frente=frente,
+            descricao=descricao,
+            valor=valor_bruto,
+            data_gasto=data_gasto,
+            comprovante=comprovante,
+            membro_id=membro_id,
+            solicitante_nome=solicitante,
+            pix_chave=pix_chave,
+            ja_pago=ja_pago,
+        )
+        if not ok:
+            mensagens = {
+                "frente_invalida": "Selecione uma Equipe ou GEPA.",
+                "solicitante_invalido": "Informe seu nome.",
+                "pix_invalido": "Informe a chave Pix para o reembolso.",
+                "descricao_invalida": "Informe uma descrição curta para o gasto.",
+                "valor_invalido": "Informe um valor maior que zero.",
+                "data_invalida": "Data inválida. Use uma data de hoje ou anterior.",
+                "erro_banco": "Erro temporário ao registrar. Tente de novo.",
+            }
+            self._send_json(
+                400,
+                {
+                    "erro": mensagens.get(motivo, "Não foi possível enviar o pedido."),
+                    "motivo": motivo,
+                },
+            )
+            return
+
+        status_txt = "Já reembolsado / pago" if ja_pago else "Pendente (aguardando pagamento)"
+        _notificar_admins(
+            "Novo pedido de reembolso (web)\n"
+            f"Frente: {frente}\n"
+            f"Solicitante: {solicitante}\n"
+            f"Chave Pix: {pix_chave}\n"
+            f"Descrição: {descricao}\n"
+            f"Valor: {_brl(float(valor_bruto))}\n"
+            f"Data: {data_gasto or datetime.now().strftime('%Y-%m-%d')}\n"
+            f"Status: {status_txt}"
+        )
+        atualizado = db.obter_detalhe_membro_por_ra(ra) if ra else None
+        self._send_json(
+            200,
+            {
+                "ok": True,
+                "id": pedido_id,
+                "ja_pago": ja_pago,
+                "mensagem": (
+                    "Reembolso registrado como pago e lançado nas saídas do caixa."
+                    if ja_pago
+                    else "Pedido de reembolso registrado como pendente."
+                ),
+                "membro": _serializar_detalhe_publico(atualizado) if atualizado else None,
+            },
+        )
+
+    def _api_admin_reembolso_item(self, reembolso_id: int) -> None:
+        dados = self._read_json()
+        if dados is None:
+            return
+        observacao = str(dados.get("observacao") or "").strip() or None
+        novo_status = str(dados.get("status") or "").strip()
+        if novo_status in ("aguardando", "aprovado", "rejeitado"):
+            resultado = db.definir_status_reembolso(
+                reembolso_id, novo_status=novo_status, observacao=observacao
+            )
+        else:
+            aprovado = bool(dados.get("aprovar", True))
+            resultado = db.resolver_pedido_reembolso(
+                reembolso_id, aprovado=aprovado, observacao=observacao
+            )
+        if resultado is None:
+            self._send_json(
+                404, {"erro": "Pedido de reembolso não encontrado"}
+            )
+            return
+        self._send_json(200, {"ok": True, **resultado})
 
     def _api_admin_login(self) -> None:
         if not _login_configurado():

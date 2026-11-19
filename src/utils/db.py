@@ -61,7 +61,11 @@ STATUS_PAGAMENTO_VALIDOS = (
     STATUS_PAGO,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
+
+FRENTES_EQUIPES = ("Tainã", "Agricultura", "Loucura", "Gênero", "Rede")
+FRENTES_GEPAS = ("GEPA 1", "GEPA 2", "GEPA 3", "GEPA 4")
+FRENTES_REEMBOLSO = (*FRENTES_EQUIPES, *FRENTES_GEPAS)
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +212,28 @@ CREATE TABLE IF NOT EXISTS solicitacoes_pagamento (
 )
 """
 
+_DDL_REEMBOLSOS = """
+CREATE TABLE IF NOT EXISTS pedidos_reembolso (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    membro_id INTEGER,
+    solicitante_nome TEXT,
+    pix_chave TEXT,
+    frente TEXT NOT NULL,
+    descricao TEXT NOT NULL,
+    valor REAL NOT NULL CHECK (valor > 0),
+    data_gasto TEXT NOT NULL,
+    comprovante TEXT,
+    status TEXT NOT NULL DEFAULT 'aguardando'
+        CHECK (status IN ('aguardando', 'aprovado', 'rejeitado')),
+    despesa_id INTEGER,
+    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolvido_em TEXT,
+    nota_gestao TEXT,
+    FOREIGN KEY (membro_id) REFERENCES membros (id) ON DELETE SET NULL,
+    FOREIGN KEY (despesa_id) REFERENCES despesas (id) ON DELETE SET NULL
+)
+"""
+
 
 def _criar_tabelas(conn: sqlite3.Connection) -> None:
     conn.execute(_DDL_MEMBROS)
@@ -262,6 +288,12 @@ def _criar_indices(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_solicitacoes_status
         ON solicitacoes_pagamento (status, membro_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_reembolsos_status
+        ON pedidos_reembolso (status, data_gasto)
         """
     )
 
@@ -411,13 +443,25 @@ def _migrar_schema(conn: sqlite3.Connection) -> None:
     # A tabela de despesas é aditiva e pode ser criada sem rebuild.
     conn.execute(_DDL_DESPESAS)
     conn.execute(_DDL_SOLICITACOES)
+    conn.execute(_DDL_REEMBOLSOS)
+    rb_cols_atuais = _columns(conn, "pedidos_reembolso")
+    if "pix_chave" not in rb_cols_atuais:
+        conn.execute(
+            "ALTER TABLE pedidos_reembolso ADD COLUMN pix_chave TEXT"
+        )
     # Abatimento parcial (FIFO por valor): quanto de uma cota ainda pendente
     # já foi pago. ``valor_pago`` continua sendo o que falta pagar enquanto a
     # cota estiver pendente, então nenhuma consulta de dívida precisa mudar.
-    if "valor_parcial" not in _columns(conn, "pagamentos"):
+    p_cols_atuais = _columns(conn, "pagamentos")
+    if "valor_parcial" not in p_cols_atuais:
         conn.execute(
             "ALTER TABLE pagamentos "
             "ADD COLUMN valor_parcial REAL NOT NULL DEFAULT 0"
+        )
+    if "data_parcial" not in p_cols_atuais:
+        conn.execute(
+            "ALTER TABLE pagamentos "
+            "ADD COLUMN data_parcial TEXT"
         )
     _criar_indices(conn)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -427,13 +471,18 @@ def init_db() -> None:
     """
     Cria o schema e executa a migração segura (idempotente).
 
-    Pode ser chamada a cada inicialização do bot/CLI.
+    Pode ser chamada a cada inicialização do bot/CLI/web.
+    Em montagens SMB/Azure Files onde WAL não é suportado, faz fallback
+    automático para DELETE journal_mode.
     """
     _ensure_db_dir()
     conn = _connect()
     try:
-        # WAL permite leitura concorrente enquanto bot/web escrevem.
-        conn.execute("PRAGMA journal_mode = WAL")
+        journal_mode = os.getenv("SQLITE_JOURNAL_MODE", "WAL").strip().upper()
+        try:
+            conn.execute(f"PRAGMA journal_mode = {journal_mode}")
+        except sqlite3.OperationalError:
+            conn.execute("PRAGMA journal_mode = DELETE")
         conn.execute("PRAGMA foreign_keys = OFF")
         with conn:
             _migrar_schema(conn)
@@ -1270,12 +1319,13 @@ def _aplicar_abatimento_fifo(
                 """
                 UPDATE pagamentos
                 SET valor_pago = ?, valor_parcial = valor_parcial + ?,
+                    data_parcial = ?,
                     observacoes = CASE
                         WHEN observacoes IS NULL OR TRIM(observacoes) = ''
                         THEN ? ELSE observacoes || ' | ' || ? END
                 WHERE id = ?
                 """,
-                (_reais(aberto - restante), _reais(restante),
+                (_reais(aberto - restante), _reais(restante), data_pagamento,
                  trecho, trecho, linha["id"]),
             )
             parcial = {
@@ -1450,6 +1500,296 @@ def resolver_solicitacao_valor(
             )
             resultado["aprovado"] = True
             return resultado
+    finally:
+        conn.close()
+
+
+def registrar_pedido_reembolso(
+    frente: Any,
+    descricao: Any,
+    valor: Any,
+    data_gasto: Optional[str] = None,
+    comprovante: Optional[str] = None,
+    membro_id: Optional[int] = None,
+    solicitante_nome: Optional[str] = None,
+    pix_chave: Optional[str] = None,
+    ja_pago: bool = False,
+) -> Tuple[bool, str, Optional[int]]:
+    """
+    Registra um pedido de reembolso de gasto do cotidiano da ITCP
+    (Equipes ou GEPAs). Se ``ja_pago=True``, entra como ``aprovado`` e cria
+    a despesa correspondente no livro caixa; caso contrário, fica ``aguardando``.
+    """
+    frente_str = str(frente or "").strip()
+    if frente_str not in FRENTES_REEMBOLSO:
+        return False, "frente_invalida", None
+
+    solicitante = str(solicitante_nome or "").strip()[:120]
+    if not solicitante:
+        return False, "solicitante_invalido", None
+
+    pix_str = str(pix_chave or "").strip()[:180]
+    if not pix_str:
+        return False, "pix_invalido", None
+
+    desc_str = str(descricao or "").strip()[:180]
+    if not desc_str:
+        return False, "descricao_invalida", None
+
+    try:
+        centavos = _centavos(valor)
+    except (TypeError, ValueError):
+        return False, "valor_invalido", None
+    if centavos <= 0:
+        return False, "valor_invalido", None
+
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    data = (data_gasto or hoje).strip()
+    try:
+        data_dt = datetime.strptime(data, "%Y-%m-%d")
+    except ValueError:
+        return False, "data_invalida", None
+    if data > hoje:
+        return False, "data_invalida", None
+    data = data_dt.strftime("%Y-%m-%d")
+
+    comp = (comprovante or "").strip()[:500] or None
+    agora = datetime.now().isoformat(timespec="seconds")
+
+    try:
+        conn = _connect()
+        try:
+            with conn:
+                if membro_id is not None:
+                    row_m = conn.execute(
+                        "SELECT id, nome FROM membros WHERE id = ?", (membro_id,)
+                    ).fetchone()
+                    if row_m is None:
+                        membro_id = None
+
+                despesa_id: Optional[int] = None
+                status_inicial = "aprovado" if ja_pago else "aguardando"
+                resolvido_em = agora if ja_pago else None
+
+                if ja_pago:
+                    desc_despesa = f"{desc_str} (reembolso: {solicitante})"
+                    cur_d = conn.execute(
+                        """
+                        INSERT INTO despesas (descricao, categoria, valor, data, comprovante)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            desc_despesa[:180],
+                            frente_str,
+                            _reais(centavos),
+                            data,
+                            comp,
+                        ),
+                    )
+                    despesa_id = int(cur_d.lastrowid)
+
+                cursor = conn.execute(
+                    """
+                    INSERT INTO pedidos_reembolso
+                        (membro_id, solicitante_nome, pix_chave, frente, descricao,
+                         valor, data_gasto, comprovante, status, despesa_id,
+                         resolvido_em)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        membro_id,
+                        solicitante,
+                        pix_str,
+                        frente_str,
+                        desc_str,
+                        _reais(centavos),
+                        data,
+                        comp,
+                        status_inicial,
+                        despesa_id,
+                        resolvido_em,
+                    ),
+                )
+                return True, "ok", int(cursor.lastrowid)
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        logger.error("Erro ao registrar pedido de reembolso: %s", exc)
+        return False, "erro_banco", None
+
+
+def listar_pedidos_reembolso(
+    status: Optional[str] = None, limite: int = 50
+) -> List[Dict[str, Any]]:
+    """Lista pedidos de reembolso (opcionalmente filtrados por status)."""
+    where = "WHERE r.status = ?" if status else ""
+    params: Tuple[Any, ...] = (status, int(limite)) if status else (int(limite),)
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT r.id, r.membro_id,
+                   COALESCE(r.solicitante_nome, m.nome) AS solicitante_nome,
+                   m.ra, r.pix_chave, r.frente, r.descricao, r.valor, r.data_gasto,
+                   r.comprovante, r.status, r.despesa_id, r.criado_em,
+                   r.resolvido_em, r.nota_gestao
+            FROM pedidos_reembolso r
+            LEFT JOIN membros m ON m.id = r.membro_id
+            {where}
+            ORDER BY CASE WHEN r.status = 'aguardando' THEN 0 ELSE 1 END,
+                     r.data_gasto DESC, r.id DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    saida: List[Dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["valor"] = float(item["valor"] or 0)
+        saida.append(item)
+    return saida
+
+
+def resolver_pedido_reembolso(
+    reembolso_id: int,
+    aprovado: bool = True,
+    observacao: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Alterna ou resolve o estado de pagamento de um pedido de reembolso:
+    - ``aprovado=True`` (Já foi feito / pago): garante que exista lançamento em
+      ``despesas`` e marca ``status = 'aprovado'``.
+    - ``aprovado=False`` (Recusar / remover se estava aguardando).
+    """
+    agora = datetime.now().isoformat(timespec="seconds")
+    nota = (observacao or "").strip() or None
+    conn = _connect()
+    try:
+        with conn:
+            pedido = conn.execute(
+                """
+                SELECT r.*, COALESCE(r.solicitante_nome, m.nome) AS nome_exibicao
+                FROM pedidos_reembolso r
+                LEFT JOIN membros m ON m.id = r.membro_id
+                WHERE r.id = ?
+                """,
+                (reembolso_id,),
+            ).fetchone()
+            if pedido is None:
+                return None
+
+            if not aprovado:
+                if pedido["despesa_id"]:
+                    conn.execute(
+                        "DELETE FROM despesas WHERE id = ?",
+                        (pedido["despesa_id"],),
+                    )
+                conn.execute(
+                    """
+                    UPDATE pedidos_reembolso
+                    SET status = 'rejeitado', despesa_id = NULL,
+                        resolvido_em = ?, nota_gestao = COALESCE(?, nota_gestao)
+                    WHERE id = ?
+                    """,
+                    (agora, nota, reembolso_id),
+                )
+                return {
+                    "aprovado": False,
+                    "status": "rejeitado",
+                    "despesa_id": None,
+                    "valor": float(pedido["valor"]),
+                    "frente": pedido["frente"],
+                }
+
+            despesa_id = pedido["despesa_id"]
+            if not despesa_id:
+                desc_despesa = str(pedido["descricao"]).strip()
+                if pedido["nome_exibicao"]:
+                    desc_despesa = f"{desc_despesa} (reembolso: {pedido['nome_exibicao']})"
+
+                cursor = conn.execute(
+                    """
+                    INSERT INTO despesas (descricao, categoria, valor, data, comprovante)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        desc_despesa[:180],
+                        pedido["frente"],
+                        float(pedido["valor"]),
+                        pedido["data_gasto"],
+                        pedido["comprovante"],
+                    ),
+                )
+                despesa_id = int(cursor.lastrowid)
+
+            conn.execute(
+                """
+                UPDATE pedidos_reembolso
+                SET status = 'aprovado', despesa_id = ?, resolvido_em = ?,
+                    nota_gestao = COALESCE(?, nota_gestao)
+                WHERE id = ?
+                """,
+                (despesa_id, agora, nota, reembolso_id),
+            )
+            return {
+                "aprovado": True,
+                "status": "aprovado",
+                "despesa_id": int(despesa_id),
+                "valor": float(pedido["valor"]),
+                "frente": pedido["frente"],
+            }
+    finally:
+        conn.close()
+
+
+def definir_status_reembolso(
+    reembolso_id: int,
+    novo_status: str,
+    observacao: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Define diretamente o status de um pedido de reembolso ('aguardando',
+    'aprovado' ou 'rejeitado'), sincronizando o lançamento em ``despesas``.
+    Permite alternar entre "Pendente (ainda não feito)" e "Já foi feito / Pago".
+    """
+    if novo_status not in ("aguardando", "aprovado", "rejeitado"):
+        raise ValueError("Status de reembolso inválido")
+    if novo_status == "aprovado":
+        return resolver_pedido_reembolso(reembolso_id, aprovado=True, observacao=observacao)
+    if novo_status == "rejeitado":
+        return resolver_pedido_reembolso(reembolso_id, aprovado=False, observacao=observacao)
+
+    conn = _connect()
+    try:
+        with conn:
+            pedido = conn.execute(
+                "SELECT * FROM pedidos_reembolso WHERE id = ?", (reembolso_id,)
+            ).fetchone()
+            if pedido is None:
+                return None
+            if pedido["despesa_id"]:
+                conn.execute(
+                    "DELETE FROM despesas WHERE id = ?", (pedido["despesa_id"],)
+                )
+            conn.execute(
+                """
+                UPDATE pedidos_reembolso
+                SET status = 'aguardando', despesa_id = NULL, resolvido_em = NULL,
+                    nota_gestao = COALESCE(?, nota_gestao)
+                WHERE id = ?
+                """,
+                ((observacao or "").strip() or None, reembolso_id),
+            )
+            return {
+                "aprovado": False,
+                "status": "aguardando",
+                "despesa_id": None,
+                "valor": float(pedido["valor"]),
+                "frente": pedido["frente"],
+            }
     finally:
         conn.close()
 
@@ -1872,6 +2212,28 @@ def obter_detalhe_membro_web(membro_id: int) -> Optional[Dict[str, Any]]:
                 (membro_id,),
             ).fetchall()
         ]
+        detalhe["reembolsos"] = [
+            {
+                "id": row["id"],
+                "frente": row["frente"],
+                "descricao": row["descricao"],
+                "valor": float(row["valor"]),
+                "data_gasto": row["data_gasto"],
+                "status": row["status"],
+                "pix_chave": row["pix_chave"],
+            }
+            for row in conn.execute(
+                """
+                SELECT id, frente, descricao, valor, data_gasto, status, pix_chave
+                FROM pedidos_reembolso
+                WHERE membro_id = ?
+                ORDER BY CASE WHEN status = 'aguardando' THEN 0 ELSE 1 END,
+                         data_gasto DESC, id DESC
+                LIMIT 10
+                """,
+                (membro_id,),
+            ).fetchall()
+        ]
     finally:
         conn.close()
     return detalhe
@@ -1955,7 +2317,11 @@ def remover_despesa(despesa_id: int) -> bool:
 
 def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
     """
-    Livro caixa consolidado: arrecadação de cotas, despesas e série mensal.
+    Livro caixa consolidado: arrecadação, reembolsos/despesas e série mensal.
+    Regra simples de arrecadação: o valor pago entra na barra do mês em que o
+    pagamento foi feito/registrado (substr(data_pagamento, 1, 7)), sem retroagir
+    para meses anteriores quando quitar pendências antigas; se não houver
+    data_pagamento (carga histórica legada), usa o próprio ``mes``.
     """
     mes = mes or buscar_mes_atual()
     conn = _connect()
@@ -1972,14 +2338,30 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
                 "SELECT COALESCE(SUM(valor), 0) FROM despesas"
             ).fetchone()[0]
         )
-        pago_mes = float(
-            conn.execute(
-                "SELECT COALESCE(SUM(CASE WHEN status_pagamento = 'pago' "
-                "THEN valor_pago ELSE 0 END + valor_parcial), 0) "
-                "FROM pagamentos WHERE mes = ?",
-                (mes,),
-            ).fetchone()[0]
-        )
+        # Arrecadação por mês de pagamento efetivo (regra simples de caixa)
+        entradas_rows = conn.execute(
+            """
+            SELECT mes_caixa, SUM(valor) AS arrecadado FROM (
+                SELECT COALESCE(NULLIF(substr(data_pagamento, 1, 7), ''), mes) AS mes_caixa,
+                       valor_pago AS valor
+                FROM pagamentos
+                WHERE status_pagamento = 'pago'
+                UNION ALL
+                SELECT COALESCE(NULLIF(substr(COALESCE(data_parcial, data_pagamento), 1, 7), ''), mes) AS mes_caixa,
+                       valor_parcial AS valor
+                FROM pagamentos
+                WHERE valor_parcial > 0
+            )
+            GROUP BY mes_caixa
+            """
+        ).fetchall()
+        entradas_map = {
+            row["mes_caixa"]: float(row["arrecadado"] or 0)
+            for row in entradas_rows
+            if row["mes_caixa"]
+        }
+        pago_mes = float(entradas_map.get(mes, 0.0))
+
         despesas_mes = float(
             conn.execute(
                 "SELECT COALESCE(SUM(valor), 0) FROM despesas "
@@ -1987,12 +2369,9 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
                 (mes,),
             ).fetchone()[0]
         )
-        serie_rows = conn.execute(
+        pendentes_rows = conn.execute(
             """
             SELECT mes,
-                   SUM(CASE WHEN status_pagamento = 'pago'
-                            THEN valor_pago ELSE 0 END
-                       + valor_parcial) AS arrecadado,
                    SUM(CASE WHEN status_pagamento <> 'pago'
                             THEN (CASE WHEN valor_pago > 0
                                        THEN valor_pago ELSE ? END)
@@ -2002,18 +2381,15 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
             """,
             (config.VALOR_CONTRIBUICAO,),
         ).fetchall()
-        serie_map = {
-            row["mes"]: {
-                "arrecadado": float(row["arrecadado"] or 0),
-                "pendente": float(row["pendente"] or 0),
-            }
-            for row in serie_rows
+        pendentes_map = {
+            row["mes"]: float(row["pendente"] or 0)
+            for row in pendentes_rows
         }
         serie = [
             {
                 "mes": m,
-                "arrecadado": serie_map.get(m, {}).get("arrecadado", 0.0),
-                "pendente": serie_map.get(m, {}).get("pendente", 0.0),
+                "arrecadado": entradas_map.get(m, 0.0),
+                "pendente": pendentes_map.get(m, 0.0),
             }
             for m in _ultimos_meses(12)
         ]
@@ -2026,7 +2402,7 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
                 FROM pagamentos p
                 JOIN membros m ON m.id = p.membro_id
                 WHERE p.status_pagamento = 'pago'
-                ORDER BY p.mes DESC, p.id DESC
+                ORDER BY COALESCE(p.data_pagamento, p.mes) DESC, p.id DESC
                 LIMIT 12
                 """
             ).fetchall()
@@ -2038,7 +2414,39 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
                 SELECT id, descricao, categoria, valor, data, comprovante
                 FROM despesas
                 ORDER BY data DESC, id DESC
-                LIMIT 12
+                LIMIT 25
+                """
+            ).fetchall()
+        ]
+        despesas_por_categoria = [
+            {
+                "categoria": row["cat"],
+                "total": float(row["total"] or 0),
+                "quantidade": int(row["qtd"] or 0),
+            }
+            for row in conn.execute(
+                """
+                SELECT COALESCE(NULLIF(TRIM(categoria), ''), 'Outros') AS cat,
+                       SUM(valor) AS total,
+                       COUNT(*) AS qtd
+                FROM despesas
+                GROUP BY cat
+                ORDER BY total DESC, cat ASC
+                """
+            ).fetchall()
+        ]
+        reembolsos_pendentes = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT r.id, r.frente, r.descricao, r.valor, r.data_gasto,
+                       r.comprovante, r.status, r.pix_chave,
+                       COALESCE(r.solicitante_nome, m.nome) AS solicitante_nome
+                FROM pedidos_reembolso r
+                LEFT JOIN membros m ON m.id = r.membro_id
+                WHERE r.status = 'aguardando'
+                ORDER BY r.data_gasto DESC, r.id DESC
+                LIMIT 20
                 """
             ).fetchall()
         ]
@@ -2050,6 +2458,8 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
         p["ex_bolsista"] = bool(p["ex_bolsista"])
     for d in despesas_recentes:
         d["valor"] = float(d["valor"] or 0)
+    for r in reembolsos_pendentes:
+        r["valor"] = float(r["valor"] or 0)
 
     return {
         "mes": mes,
@@ -2061,4 +2471,6 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
         "serie": serie,
         "pagamentos_recentes": pagamentos_recentes,
         "despesas_recentes": despesas_recentes,
+        "despesas_por_categoria": despesas_por_categoria,
+        "reembolsos_pendentes": reembolsos_pendentes,
     }
