@@ -336,7 +336,7 @@ def imprimir_relatorio(
     ex = resumo_db["ex_bolsistas"]
 
     print("\n" + "=" * 68)
-    print("📊 RELATÓRIO DE AUDITORIA DA CARGA LEGADA")
+    print("📊 RELATÓRIO DE CONFERÊNCIA DA CARGA LEGADA")
     print("=" * 68)
 
     print("\n👥 MEMBROS")
@@ -361,7 +361,7 @@ def imprimir_relatorio(
     print(f"  Ignorados .............. {lancamentos['ignorados']}")
     print(f"  Status PAGO ............ {lancamentos['pagos']}")
     print(f"  Status PENDENTE ........ {lancamentos['pendentes']}")
-    print(f"  Aguardando auditoria ... {lancamentos['aguardando']}")
+    print(f"  Aguardando conferência ... {lancamentos['aguardando']}")
 
     print("\n💰 ATIVOS")
     print(f"  Lançamentos ............ {int(ativos['lancamentos'])}")
@@ -369,7 +369,7 @@ def imprimir_relatorio(
           f"({_brl(ativos['valor_pago'])})")
     print(f"  Cotas pendentes ........ {int(ativos['pendentes'])} "
           f"({_brl(ativos['saldo_devedor'])})")
-    print(f"  Em auditoria ........... {int(ativos['em_auditoria'])}")
+    print(f"  Em conferência ........... {int(ativos['em_auditoria'])}")
 
     print("\n🎓 EX-BOLSISTAS (histórico)")
     print(f"  Lançamentos ............ {int(ex['lancamentos'])}")
@@ -377,7 +377,7 @@ def imprimir_relatorio(
           f"({_brl(ex['valor_pago'])})")
     print(f"  Pendências históricas .. {int(ex['pendentes'])} "
           f"({_brl(ex['saldo_devedor'])})")
-    print(f"  Em auditoria ........... {int(ex['em_auditoria'])}")
+    print(f"  Em conferência ........... {int(ex['em_auditoria'])}")
 
     print("\n🧾 TOTAIS")
     print(f"  Cotas pagas ............ "

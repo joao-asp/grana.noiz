@@ -5,7 +5,7 @@ Bot do Telegram para Caixinha Coletiva
 
 Funcionalidades:
     * cadastro/vínculo do membro (inclusive legado, via RA);
-    * registro de pagamentos com auditoria assíncrona;
+    * registro de pagamentos com conferência assíncrona;
     * consulta de dívidas e status;
     * cobrança automática mensal apenas para bolsistas ativos.
 """
@@ -141,7 +141,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user.id in config.ADMINS:
         comandos_admin = (
             "\n🔧 *Comandos de administrador:*\n\n"
-            "/status - Balanço de ativos, ex-bolsistas e auditoria\n"
+            "/status - Balanço de ativos, ex-bolsistas e conferência\n"
             "/divida_manual <telegram_id> <mes> <valor> - Adicionar dívida manual\n"
         )
 
@@ -151,7 +151,7 @@ Este bot te ajuda a acompanhar suas contribuições mensais para a caixinha do c
 
 📋 *Comandos disponíveis:*
 
-/pagar - Solicitar baixa da cota do mês atual (passa por auditoria)
+/pagar - Solicitar baixa da cota do mês atual (passa por conferência)
 /divida - Ver suas pendências
 /paguei <mes> - Solicitar baixa de um mês específico (ex: /paguei 2025-01)
 /vincular <RA> - Vincular seu Telegram ao cadastro legado da ITCP
@@ -240,7 +240,7 @@ async def vincular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def pagar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Comando /pagar - solicita baixa do mês atual para auditoria."""
+    """Comando /pagar - solicita baixa do mês atual para conferência."""
     user = update.effective_user
     if user is None or update.message is None:
         return
@@ -269,12 +269,12 @@ async def pagar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"🕵️ *Solicitação registrada!*\n\n"
             f"📅 Mês: {mes_fmt}\n"
             f"💰 Valor: {_brl(config.VALOR_CONTRIBUICAO)}\n\n"
-            f"Seu pagamento ficou com status *aguardando auditoria*. "
+            f"Seu pagamento ficou com status *aguardando conferência*. "
             f"Um admin vai conferir o extrato e confirmar. 💚",
         )
         await _notificar_admins(
             context,
-            f"🔔 *Nova solicitação de auditoria*\n\n"
+            f"🔔 *Nova solicitação de conferência*\n\n"
             f"👤 {_nome_membro(membro)}"
             f"{' (RA ' + _md(membro['ra']) + ')' if membro['ra'] else ''}\n"
             f"📅 {mes_fmt}\n"
@@ -286,7 +286,7 @@ async def pagar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     mensagens = {
         "ja_pago": "✅ Este mês já está confirmado como pago. Obrigado(a)! 💚",
         "ja_aguardando": (
-            "⏳ Sua solicitação para este mês já está *aguardando auditoria*. "
+            "⏳ Sua solicitação para este mês já está *aguardando conferência*. "
             "Aguarde a conferência de um admin."
         ),
         "mes_invalido": "❌ Mês inválido.",
@@ -297,7 +297,7 @@ async def pagar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def divida(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Comando /divida - mostra pendências e solicitações em auditoria."""
+    """Comando /divida - mostra pendências e solicitações em conferência."""
     user = update.effective_user
     if user is None or update.message is None:
         return
@@ -340,7 +340,7 @@ async def divida(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             for mes, valor in em_auditoria
         ]
         mensagem += (
-            "\n🔎 *Aguardando auditoria:*\n"
+            "\n🔎 *Aguardando conferência:*\n"
             + _limitar_linhas(linhas, 20)
             + "\n"
         )
@@ -388,11 +388,11 @@ async def paguei_mes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f"🕵️ *Solicitação registrada!*\n\n"
             f"📅 Mês: {_mes_formatado(mes)}\n"
             f"💰 Valor: {_brl(config.VALOR_CONTRIBUICAO)}\n\n"
-            f"Status: *aguardando auditoria*. Um admin vai conferir e confirmar. 💚",
+            f"Status: *aguardando conferência*. Um admin vai conferir e confirmar. 💚",
         )
         await _notificar_admins(
             context,
-            f"🔔 *Nova solicitação de auditoria*\n\n"
+            f"🔔 *Nova solicitação de conferência*\n\n"
             f"👤 {_nome_membro(membro)}"
             f"{' (RA ' + _md(membro['ra']) + ')' if membro['ra'] else ''}\n"
             f"📅 {_mes_formatado(mes)}\n"
@@ -404,7 +404,7 @@ async def paguei_mes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     mensagens = {
         "ja_pago": "✅ Este mês já está confirmado como pago. Obrigado(a)! 💚",
         "ja_aguardando": (
-            "⏳ Sua solicitação para este mês já está *aguardando auditoria*."
+            "⏳ Sua solicitação para este mês já está *aguardando conferência*."
         ),
         "mes_invalido": "❌ Mês inválido.",
         "erro_banco": "❌ Erro temporário ao registrar. Tente novamente.",
@@ -414,7 +414,7 @@ async def paguei_mes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Comando /status - balanço separado de ativos, ex-bolsistas e auditoria."""
+    """Comando /status - balanço separado de ativos, ex-bolsistas e conferência."""
     user = update.effective_user
     if user is None or update.message is None:
         return
@@ -440,7 +440,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"👥 *Bolsistas ativos:* {int(ativos['membros'])}\n"
         f"✅ Pagos no mês: {int(ativos_mes['pagos'])}\n"
         f"⏳ Pendentes no mês: {int(ativos_mes['pendentes'])}\n"
-        f"🔎 Em auditoria no mês: {int(ativos_mes['em_auditoria'])}\n"
+        f"🔎 Em conferência no mês: {int(ativos_mes['em_auditoria'])}\n"
         f"💰 Arrecadado no mês: {_brl(ativos_mes['valor_pago'])}\n"
         f"📉 Saldo devedor histórico: {_brl(ativos['saldo_devedor'])}\n\n"
     )
@@ -460,12 +460,12 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             for row in aguardando
         ]
         mensagem += (
-            f"🕵️ *Aguardando auditoria ({len(aguardando)}):*\n"
+            f"🕵️ *Aguardando conferência ({len(aguardando)}):*\n"
             + _limitar_linhas(linhas, 15)
             + "\n\n"
         )
     else:
-        mensagem += "🕵️ Nenhum pagamento aguardando auditoria.\n\n"
+        mensagem += "🕵️ Nenhum pagamento aguardando conferência.\n\n"
 
     # Detalhe do mês (ativos e ex-bolsistas que têm lançamento no mês)
     if status_mes:
@@ -516,7 +516,7 @@ async def cobranca_automatica(context: ContextTypes.DEFAULT_TYPE) -> None:
         if telegram_id is None:
             continue
         try:
-            # buscar_dividas ignora solicitações em auditoria (não cobra de novo)
+            # buscar_dividas ignora solicitações em conferência (não cobra de novo)
             dividas = db.buscar_dividas(telegram_id)
             if not dividas:
                 continue

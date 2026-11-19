@@ -107,7 +107,7 @@ def mostrar_menu() -> None:
     print("6. Ver status/resumo do mês atual")
     print("7. Criar cobrança para o mês atual")
     print("8. Adicionar dívida manual")
-    print("9. Aprovar/rejeitar pagamentos em auditoria")
+    print("9. Aprovar/rejeitar pagamentos em conferência")
     print("10. Vincular Telegram ID a membro legado")
     print("11. Backup do banco de dados")
     print("0. Sair")
@@ -214,7 +214,7 @@ def ver_dividas_membro() -> None:
         print(f"  Total: {_brl(total)}")
 
     if em_auditoria:
-        print("\n🔎 Aguardando auditoria:")
+        print("\n🔎 Aguardando conferência:")
         for mes, valor in em_auditoria:
             print(f"  • {_mes_fmt(mes)}: {_brl(valor)}")
 
@@ -234,7 +234,7 @@ def ver_status_mes() -> None:
     print(f"👥 Bolsistas ativos: {int(ativos['membros'])}")
     print(f"  ✅ Pagos: {int(ativos['pagos'])} ({_brl(ativos['valor_pago'])})")
     print(f"  ⏳ Pendentes: {int(ativos['pendentes'])}")
-    print(f"  🔎 Em auditoria: {int(ativos['em_auditoria'])}")
+    print(f"  🔎 Em conferência: {int(ativos['em_auditoria'])}")
     print(f"🎓 Ex-bolsistas: {int(ex['membros'])}")
     print(f"  ✅ Cotas pagas no mês: {int(ex['pagos'])} ({_brl(ex['valor_pago'])})")
     print(f"  ⏳ Pendentes no mês: {int(ex['pendentes'])}")
@@ -249,14 +249,14 @@ def ver_status_mes() -> None:
             )
 
     if aguardando:
-        print("\n🕵️ Aguardando auditoria (todos os meses):")
+        print("\n🕵️ Aguardando conferência (todos os meses):")
         for row in aguardando:
             print(
                 f"  • #{row['id']} {row['nome'][:35]:35} "
                 f"{_mes_fmt(row['mes'])} {_brl(float(row['valor_pago']))}"
             )
     else:
-        print("\n🕵️ Nenhum pagamento aguardando auditoria.")
+        print("\n🕵️ Nenhum pagamento aguardando conferência.")
 
 
 def criar_cobranca_mes() -> None:
@@ -316,7 +316,7 @@ def adicionar_divida_manual() -> None:
 
 
 def aprovar_auditoria() -> None:
-    print("\n🕵️ Pagamentos aguardando auditoria")
+    print("\n🕵️ Pagamentos aguardando conferência")
     pendentes = db.listar_pagamentos_aguardando_auditoria()
 
     if not pendentes:

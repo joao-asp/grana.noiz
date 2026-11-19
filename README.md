@@ -10,7 +10,7 @@ de cobranças para coletivos e organizações autônomas.
 ## Funcionalidades
 
 - 🔐 Cadastro automático de membros e vínculo por RA
-- 💰 Registro de pagamentos com auditoria (`aguardando_auditoria`)
+- 💰 Registro de pagamentos com conferência da gestão (`aguardando_auditoria` no banco)
 - 📊 Consulta de dívidas individuais e balanço ativos/ex-bolsistas
 - ⏰ Cobrança automática programável
 - 🛡️ Painel administrativo (CLI e web)
@@ -56,7 +56,7 @@ bottom navigation no celular e sidebar + grid no desktop.
 Telas públicas:
 - **Início** — identificação por **RA** logo no topo: a pessoa vê o total em
   aberto, os meses pendentes, o histórico e pode avisar o pagamento de um mês
-  específico (entra em auditoria).
+  específico (entra em conferência).
 - **Coletivo / Transparência** — apenas pessoas **ativas**, adesão do mês e
   saúde geral. **Não expõe nomes de quem está devendo nem valores individuais.**
   Ex-bolsistas ficam arquivados no histórico interno e não aparecem na lista.
@@ -78,7 +78,7 @@ O login usa usuário e senha (`WEB_ADMIN_USER` / `WEB_ADMIN_PASSWORD` no
 `.env`). A sessão fica em cookie HttpOnly + SameSite=Strict, com expiração
 configurável. Após entrar, a gestão pode:
 
-- aprovar/rejeitar pagamentos em auditoria;
+- aprovar/rejeitar pagamentos em conferência;
 - gerar cobranças do mês;
 - cadastrar pessoas e vincular Telegram;
 - ver detalhes financeiros individuais;
@@ -119,11 +119,11 @@ make web-logs     # logs da web
 - `/start` - Cadastro e boas-vindas
 - `/vincular <RA>` - Vincular o Telegram ao cadastro legado da ITCP
 - `/pagar` - Solicitar baixa do mês atual (fica `aguardando_auditoria`)
-- `/divida` - Ver pendências em aberto e em auditoria
+- `/divida` - Ver pendências em aberto e em conferência
 - `/paguei 2025-01` - Solicitar baixa de um mês específico
 
 **Para administradores:**
-- `/status` - Balanço de bolsistas ativos, ex-bolsistas e auditoria
+- `/status` - Balanço de bolsistas ativos, ex-bolsistas e conferência
 - `/divida_manual <id> <mes> <valor>` - Adicionar dívida
 - `make admin` - Aprovar pagamentos, listar ex-bolsistas e vincular Telegram
 
