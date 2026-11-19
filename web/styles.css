@@ -227,9 +227,6 @@ a { color: inherit; text-decoration: none; }
 .side-nav a:hover { color: var(--text); background: var(--surface-2); }
 .side-nav a.is-active { background: var(--surface-2); color: var(--text); font-weight: 600; }
 
-.sidebar-foot { display: grid; gap: 10px; margin-top: auto; padding: 16px 6px 0; border-top: 1px solid var(--line); }
-.status-line { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: var(--t-xs); }
-
 .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--ok); }
 
 /* --------------------------------------------------------------------------

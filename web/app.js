@@ -317,9 +317,6 @@ function renderShell(viewHtml) {
     <aside class="sidebar" aria-label="Navegação principal">
       ${brandMarkup(true)}
       <nav class="side-nav">${sideLinks}</nav>
-      <div class="sidebar-foot">
-        <div class="status-line"><span class="dot"></span> Caixinha ITCP</div>
-      </div>
     </aside>
 
     <header class="topbar">
