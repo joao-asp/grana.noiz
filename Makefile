@@ -15,6 +15,7 @@ ARGS ?=
 
 # Infraestrutura Azure (Terraform + Imagem Docker)
 TF_AZURE_DIR ?= infra/azure
+AZURE_VAR_FILE ?=
 IMAGE ?= ghcr.io/joao-asp/grana.noiz:latest
 PLATFORM ?= linux/amd64
 
@@ -97,15 +98,15 @@ azure-init: ## ☁️ Inicializar Terraform para deploy na Azure (infra/azure)
 
 azure-plan: ## 📐 Gerar plano de execução do Terraform na Azure
 	@echo "$(GREEN)📐 Planejando infraestrutura Azure em $(TF_AZURE_DIR)...$(NC)"
-	@terraform -chdir=$(TF_AZURE_DIR) plan
+	@terraform -chdir=$(TF_AZURE_DIR) plan $(if $(AZURE_VAR_FILE),-var-file=$(AZURE_VAR_FILE),)
 
 azure-apply: ## 🚀 Provisionar/atualizar infraestrutura do grana.noiz na Azure
 	@echo "$(GREEN)🚀 Aplicando infraestrutura Azure em $(TF_AZURE_DIR)...$(NC)"
-	@terraform -chdir=$(TF_AZURE_DIR) apply
+	@terraform -chdir=$(TF_AZURE_DIR) apply $(if $(AZURE_VAR_FILE),-var-file=$(AZURE_VAR_FILE),)
 
 azure-output: ## 🔗 Mostrar outputs do deploy na Azure (URL pública, storage etc.)
 	@terraform -chdir=$(TF_AZURE_DIR) output
 
 azure-destroy: ## 💥 Destruir recursos provisionados pelo Terraform na Azure
 	@echo "$(RED)⚠️  Destruindo recursos Azure em $(TF_AZURE_DIR)...$(NC)"
-	@terraform -chdir=$(TF_AZURE_DIR) destroy
+	@terraform -chdir=$(TF_AZURE_DIR) destroy $(if $(AZURE_VAR_FILE),-var-file=$(AZURE_VAR_FILE),)
