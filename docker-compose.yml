@@ -5,6 +5,9 @@ services:
     build: .
     container_name: bot-caixinha
     restart: unless-stopped
+    command: ["python", "-m", "src.bot"]
+    healthcheck:
+      disable: true
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

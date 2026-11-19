@@ -1,0 +1,33 @@
+# =============================================================================
+# grana.noiz — Exemplo de variáveis para deploy na Azure (Terraform)
+# Copie para infra/azure/terraform.tfvars e preencha os valores reais:
+#   cp infra/azure/terraform.tfvars.example infra/azure/terraform.tfvars
+# =============================================================================
+
+project_name        = "grananoiz"
+environment         = "prod"
+location            = "brazilsouth"
+resource_group_name = "rg-grananoiz-prod"
+
+# Imagem Docker (pública no GHCR/Docker Hub ou privada no ACR se create_acr = true)
+create_acr      = false
+container_image = "ghcr.io/joao-asp/grana.noiz:latest"
+
+# Recursos do container e volume SQLite (/app/data/caixinha.db)
+container_cpu       = 0.25
+container_memory    = "0.5Gi"
+file_share_quota_gb = 5
+
+# Configurações da caixinha ITCP
+valor_contribuicao = "5.0"
+pix_chave          = "sua-chave-pix@itcp.unicamp.br"
+cobranca_dia       = "10"
+
+# Credenciais do painel /admin
+web_admin_user          = "admin"
+web_admin_password      = "troque-esta-senha-forte"
+web_admin_password_hash = ""
+
+# Integração opcional com Telegram
+telegram_bot_token = ""
+admins             = ""

@@ -30,8 +30,9 @@ VALOR_CONTRIBUICAO = float(os.getenv("VALOR_CONTRIBUICAO", "5.0"))
 # ================================
 
 # Servidor HTTP embutido (sem framework): http://localhost:8080
+# Suporta PORT (padrão Azure App Service / Container Apps) ou WEB_PORT
 WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
-WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
+WEB_PORT = int(os.getenv("PORT", os.getenv("WEB_PORT", "8080")))
 
 # URL pública exibida no bot (ajuste para o domínio em produção)
 WEB_PUBLIC_URL = os.getenv("WEB_PUBLIC_URL", "http://localhost:8080")

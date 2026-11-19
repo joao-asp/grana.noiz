@@ -1,4 +1,4 @@
-.PHONY: help setup dev prod clean admin logs stop web web-docker web-logs import-legado import-legado-docker
+.PHONY: help setup dev prod clean admin logs stop web web-docker web-logs import-legado import-legado-docker docker-build docker-push azure-init azure-plan azure-apply azure-destroy azure-output
 
 # Cores para output
 GREEN=\033[0;32m
@@ -12,6 +12,11 @@ PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else e
 # Argumentos extras para a importação, ex.:
 #   make import-legado ARGS="--membros /caminho/a.csv --lancamentos /caminho/b.csv"
 ARGS ?=
+
+# Infraestrutura Azure (Terraform + Imagem Docker)
+TF_AZURE_DIR ?= infra/azure
+IMAGE ?= ghcr.io/joao-asp/grana.noiz:latest
+PLATFORM ?= linux/amd64
 
 help: ## 📋 Mostrar ajuda
 	@echo "$(GREEN)🤖 Bot da Caixinha - Comandos Disponíveis$(NC)"
@@ -75,3 +80,32 @@ import-legado: ## 📥 Importar histórico legado (ambiente local)
 import-legado-docker: ## 🐳 Importar histórico legado (via Docker)
 	@echo "$(GREEN)📥 Importando histórico legado (Docker)...$(NC)"
 	@docker-compose run --rm bot-caixinha python -m scripts.importar_legado $(ARGS)
+
+docker-build: ## 🐳 Buildar imagem Docker para produção (IMAGE=...)
+	@echo "$(GREEN)🐳 Construindo imagem $(IMAGE) ($(PLATFORM))...$(NC)"
+	@docker build --platform $(PLATFORM) -t $(IMAGE) .
+	@echo "$(GREEN)✅ Imagem construída: $(IMAGE)$(NC)"
+
+docker-push: docker-build ## 📤 Buildar e publicar imagem Docker no registro (IMAGE=...)
+	@echo "$(GREEN)📤 Publicando imagem $(IMAGE)...$(NC)"
+	@docker push $(IMAGE)
+	@echo "$(GREEN)✅ Imagem publicada: $(IMAGE)$(NC)"
+
+azure-init: ## ☁️ Inicializar Terraform para deploy na Azure (infra/azure)
+	@echo "$(GREEN)☁️ Inicializando Terraform em $(TF_AZURE_DIR)...$(NC)"
+	@terraform -chdir=$(TF_AZURE_DIR) init
+
+azure-plan: ## 📐 Gerar plano de execução do Terraform na Azure
+	@echo "$(GREEN)📐 Planejando infraestrutura Azure em $(TF_AZURE_DIR)...$(NC)"
+	@terraform -chdir=$(TF_AZURE_DIR) plan
+
+azure-apply: ## 🚀 Provisionar/atualizar infraestrutura do grana.noiz na Azure
+	@echo "$(GREEN)🚀 Aplicando infraestrutura Azure em $(TF_AZURE_DIR)...$(NC)"
+	@terraform -chdir=$(TF_AZURE_DIR) apply
+
+azure-output: ## 🔗 Mostrar outputs do deploy na Azure (URL pública, storage etc.)
+	@terraform -chdir=$(TF_AZURE_DIR) output
+
+azure-destroy: ## 💥 Destruir recursos provisionados pelo Terraform na Azure
+	@echo "$(RED)⚠️  Destruindo recursos Azure em $(TF_AZURE_DIR)...$(NC)"
+	@terraform -chdir=$(TF_AZURE_DIR) destroy
