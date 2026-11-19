@@ -5,6 +5,7 @@
 'use strict';
 
 const STORAGE_RA = 'grana_ra';
+const STORAGE_THEME = 'grana_theme';
 
 const MESES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -34,6 +35,8 @@ const ICONS = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>',
   favorite: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8Z"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
 };
 
@@ -46,7 +49,7 @@ const NAV = [
 
 const PAGE_TITLES = {
   inicio: 'Visão geral',
-  transparencia: 'Transparência',
+  transparencia: 'Coletivo',
   caixa: 'Livro caixa',
   assistente: 'Assistente da caixinha',
   admin: 'Painel da gestão',
@@ -62,7 +65,7 @@ const state = {
   admin: false,
   adminUser: '',
   membros: [],
-  auditoria: [],
+  conferencia: [],
   caixa: null,
   filters: { tipo: 'todos', q: '', semTelegram: false },
   chat: [],
@@ -104,6 +107,19 @@ function mesShort(mes) {
   return `${MESES_CURTOS[Number(match[2]) - 1] || match[2]}/${match[1].slice(2)}`;
 }
 
+function mesCurtoAno(mes) {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(mes || ''));
+  if (!match) return mes || '—';
+  return `${MESES_CURTOS[Number(match[2]) - 1] || match[2]}/${match[1]}`;
+}
+
+/** Aceita "10", "10,5" ou "1.234,50" e devolve número (ou NaN). */
+function parseValor(texto) {
+  let t = String(texto || '').trim().replace(/[^\d.,]/g, '');
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  return Number.parseFloat(t);
+}
+
 function dateBR(value) {
   if (!value) return '';
   const parsed = new Date(String(value).length <= 10 ? `${value}T12:00:00` : value);
@@ -134,11 +150,51 @@ function firstName(name) {
   return String(name || '').trim().split(/\s+/)[0] || 'coletivo';
 }
 
+/* --------------------------------------------------------------------------
+   Tema claro / escuro (persistente)
+   -------------------------------------------------------------------------- */
+
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  const root = document.documentElement;
+  root.setAttribute('data-theme', theme);
+  root.style.colorScheme = theme;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0F172A' : '#F8FAFC');
+}
+
+function toggleTheme() {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem(STORAGE_THEME, next); } catch (_) { /* modo privado */ }
+  applyTheme(next);
+  $$('[data-action="toggle-theme"]').forEach((btn) => {
+    btn.innerHTML = themeIcon();
+    btn.setAttribute('aria-label', themeLabel());
+    btn.setAttribute('title', themeLabel());
+  });
+}
+
+function themeIcon() {
+  return icon(currentTheme() === 'dark' ? 'sun' : 'moon');
+}
+
+function themeLabel() {
+  return currentTheme() === 'dark' ? 'Mudar para modo claro' : 'Mudar para modo escuro';
+}
+
+function themeToggleMarkup() {
+  return `<button class="icon-btn" type="button" data-action="toggle-theme"
+            aria-label="${themeLabel()}" title="${themeLabel()}">${themeIcon()}</button>`;
+}
+
 function statusMeta(status) {
   const map = {
     pago: { label: 'Quitado', cls: 'badge-paid' },
     pendente: { label: 'Pendente', cls: 'badge-pending' },
-    aguardando_auditoria: { label: 'Em auditoria', cls: 'badge-audit' },
+    aguardando_auditoria: { label: 'Aguardando confirmação', cls: 'badge-wait' },
     sem_cobranca: { label: 'Sem cobrança', cls: 'badge-neutral' },
   };
   return map[status] || { label: status || '—', cls: 'badge-neutral' };
@@ -267,6 +323,7 @@ function renderShell(viewHtml) {
       </div>
       <div class="topbar-right">
         <span class="month-chip">${mesShort(mes)}</span>
+        ${themeToggleMarkup()}
       </div>
     </header>
 
@@ -282,7 +339,7 @@ function renderAdminLogin() {
   return `
     <div class="admin-page">
       <div class="admin-login-wrap">
-        ${brandMarkup(true)}
+        <div class="admin-login-top">${brandMarkup(true)}${themeToggleMarkup()}</div>
         <section class="card admin-login-card">
           <div class="lock-icon">${icon('lock')}</div>
           <span class="eyebrow" style="margin-top:16px">Acesso restrito</span>
@@ -336,6 +393,7 @@ function renderAdminShell() {
       <header class="admin-topbar">
         ${brandMarkup(true)}
         <div class="admin-topbar-actions">
+          ${themeToggleMarkup()}
           <span class="badge badge-active" title="${esc(state.adminUser || 'gestão')}">Sessão ativa</span>
           <a class="btn btn-ghost btn-sm" href="/#/inicio">
             ${icon('home')} Ver site
@@ -383,8 +441,6 @@ function renderInicio() {
   if (!r) return renderError('A API da caixinha não respondeu.');
   const m = state.membro;
   const ativosMes = r.mes_atual?.ativos || {};
-  const cotasMes = (ativosMes.pagos || 0) + (ativosMes.pendentes || 0) + (ativosMes.em_auditoria || 0);
-  const adesao = pct(ativosMes.pagos || 0, cotasMes);
   const totalAtivos = r.membros?.ativos || 0;
 
   const memberCard = m ? renderMemberCard(m, r) : `
@@ -393,7 +449,7 @@ function renderInicio() {
         <div>
           <span class="eyebrow">${icon('users')} Minha caixinha</span>
           <h2 class="card-title" style="margin-top:7px">Entre com seu RA</h2>
-          <p class="card-sub">Veja o que você deve à caixinha, suas pendências e seu histórico.</p>
+          <p class="card-sub">Veja o que está em aberto e avise quando pagar.</p>
         </div>
       </div>
       <form data-form="buscar-ra" class="form-grid">
@@ -401,21 +457,15 @@ function renderInicio() {
           <label for="ra-input">Seu RA na ITCP/Unicamp</label>
           <input id="ra-input" name="ra" inputmode="numeric" autocomplete="off"
                  placeholder="Ex.: 248340" required>
-          <span class="field-hint">
-            O RA é usado só para localizar seu cadastro. Não pedimos senha nem
-            dados bancários. Se não souber seu RA, fale com a gestão.
-          </span>
+          <span class="field-hint">Só usamos o RA para localizar seu cadastro. Sem senha, sem dados bancários.</span>
         </div>
         <button class="btn btn-primary btn-block" type="submit">
           ${icon('search')} Ver o que eu devo
         </button>
       </form>
-      <div class="member-entry-note">
-        <span class="dot"></span>
-        <span>A lista pública não mostra seus valores individuais.</span>
-      </div>
     </section>`;
 
+  /* TODO: reativar após conciliação de empréstimos e reembolsos
   const healthCard = `
     <section class="card">
       <div class="card-header">
@@ -441,13 +491,13 @@ function renderInicio() {
         </div>
       </div>
     </section>`;
+  */
 
   const movimentacoes = m ? `
     <section class="card">
       <div class="card-header">
         <div>
           <h2 class="card-title">Minhas movimentações</h2>
-          <p class="card-sub">Últimos lançamentos do seu cadastro.</p>
         </div>
       </div>
       ${renderPagamentosMembro(m)}
@@ -457,135 +507,100 @@ function renderInicio() {
     <section class="page-head">
       <div class="page-head-row">
         <div>
-          <span class="eyebrow"><span class="dot"></span> Coletivo ativo</span>
           <h1>Olá, ${m ? esc(firstName(m.nome)) : 'coletivo'}</h1>
           <p class="subtitle">${m
-            ? 'Seu espaço individual de acompanhamento da caixinha.'
-            : 'Identifique-se pelo RA para ver sua situação. Os dados coletivos ficam logo abaixo.'}</p>
+            ? 'Seu espaço na caixinha.'
+            : 'Entre com seu RA para ver sua situação.'}</p>
         </div>
         <span class="month-chip">${mesLabel(r.mes)}</span>
       </div>
     </section>
 
-    <div class="grid-2" style="align-items:start">
+    <div class="home-grid">
       ${memberCard}
-      ${healthCard}
     </div>
 
-    <div class="stat-grid" style="margin-top:14px">
+    <div class="stat-grid stat-grid-2" style="margin-top:14px">
       <div class="stat">
         <span class="stat-label">Bolsistas ativos</span>
         <span class="stat-value">${totalAtivos}</span>
-        <span class="stat-hint">pessoas contribuindo com o coletivo</span>
+        <span class="stat-hint">pessoas contribuindo</span>
       </div>
       <div class="stat">
         <span class="stat-label">Pago no mês</span>
         <span class="stat-value is-secondary">${brl(ativosMes.valor_pago || 0)}</span>
         <span class="stat-hint">${ativosMes.pagos || 0} cota(s) confirmada(s)</span>
       </div>
-      <div class="stat">
-        <span class="stat-label">Em acompanhamento</span>
-        <span class="stat-value is-tertiary">${r.ativos?.pendentes || 0}</span>
-        <span class="stat-hint">cotas em conversa com a gestão</span>
-      </div>
-      <div class="stat">
-        <span class="stat-label">Em auditoria</span>
-        <span class="stat-value ${r.auditoria?.total ? 'is-primary' : ''}">${r.auditoria?.total || 0}</span>
-        <span class="stat-hint">solicitações aguardando conferência</span>
-      </div>
     </div>
 
-    ${movimentacoes}
-
-    <section class="card card-low" style="margin-top:14px">
-      <div class="headerless-note">
-        <div class="list-icon is-paid">${icon('trend')}</div>
-        <div>
-          <h3>Gestão horizontal e transparente</h3>
-          <p class="card-sub" style="margin-top:3px">
-            As cotas sustentam o espaço, o café e os materiais das oficinas.
-            Imprevistos? Fale com a gestão na roda — a conversa vem antes da cobrança.
-          </p>
-        </div>
-      </div>
-    </section>`;
+    ${movimentacoes}`;
 }
 
 function renderMemberCard(m, r) {
-  const status = m.status_mes_atual || 'sem_cobranca';
-  const meta = statusMeta(status);
   const isEx = Boolean(m.ex_bolsista);
   const pix = r.pix_chave || '';
   const pagamentos = m.pagamentos || [];
-  const pendentes = pagamentos.filter((p) => p.status_pagamento === 'pendente');
-  const emAuditoria = pagamentos.filter((p) => p.status_pagamento === 'aguardando_auditoria');
-  const cotaMes = pagamentos.find((p) => p.mes === r.mes);
-  const valorMes = cotaMes ? Number(cotaMes.valor_pago) : Number(r.valor_contribuicao || 0);
+  const pendentes = pagamentos
+    .filter((p) => p.status_pagamento === 'pendente')
+    .sort((a, b) => String(a.mes).localeCompare(String(b.mes)));
+  const totalAberto = Number(m.saldo_devedor || 0);
+  const avisos = m.solicitacoes_aguardando || [];
+  const aguardandoMes = pagamentos.filter((p) => p.status_pagamento === 'aguardando_auditoria');
 
-  const opcoes = pendentes.map((p) => ({ mes: p.mes, valor: Number(p.valor_pago) }));
-  if (
-    !isEx
-    && !opcoes.some((o) => o.mes === r.mes)
-    && status !== 'pago'
-    && status !== 'aguardando_auditoria'
-  ) {
-    opcoes.push({ mes: r.mes, valor: Number(r.valor_contribuicao || 0) });
-  }
-
-  const pendentesVisiveis = pendentes.slice(0, 8);
-  const pendenciasHtml = pendentes.length ? `
-    <div class="pending-block">
-      <div class="pending-head">
-        <span>Pendências em aberto</span>
-        <span class="mono">${pendentes.length} cota(s)</span>
+  const abertoHtml = pendentes.length ? `
+    <div class="debt-summary">
+      <div class="debt-total">
+        <span class="stat-label">Total em aberto</span>
+        <span class="stat-value is-pending">${brl(totalAberto)}</span>
+        <span class="stat-hint">${pendentes.length} cota(s)</span>
       </div>
-      <div class="list">
-        ${pendentesVisiveis.map((p) => `
-          <div class="list-row">
-            <div class="list-main">
-              <div class="list-icon is-audit">${icon('receipt')}</div>
-              <div>
-                <div class="list-title">${mesLabel(p.mes)}</div>
-                <span class="list-sub">em aberto</span>
-              </div>
-            </div>
-            <span class="list-value">${brl(p.valor_pago)}</span>
-          </div>`).join('')}
+      <div class="debt-months">
+        <span class="stat-label">Meses em aberto</span>
+        <ul class="month-chips">
+          ${pendentes.map((p) => `
+            <li class="month-pill" title="${brl(p.valor_pago)}">${esc(mesCurtoAno(p.mes))}</li>`).join('')}
+        </ul>
       </div>
-      ${pendentes.length > pendentesVisiveis.length
-        ? `<p class="field-hint">… e mais ${pendentes.length - pendentesVisiveis.length} mês(es). Fale com a gestão para combinar.</p>`
-        : ''}
     </div>` : `
-    <div class="empty" style="padding:14px;margin-top:12px">
+    <div class="pending-note is-ok">
       ${icon('check')}
-      <div>${isEx ? 'Sem pendências históricas em aberto.' : 'Nenhuma pendência em aberto. 🎉'}</div>
+      <span>${isEx ? 'Sem pendências em aberto.' : 'Tudo em dia por aqui. 💙'}</span>
     </div>`;
 
-  const solicitacaoHtml = opcoes.length ? `
-    <form data-form="solicitar-mes" class="solicitar-form">
+  const avisosHtml = (avisos.length || aguardandoMes.length) ? `
+    <div class="pending-note is-wait">
+      ${icon('refresh')}
+      <span>
+        ${avisos.map((a) => `${brl(a.valor)} em ${dateBR(a.data_pagamento)}`).join(' · ')}
+        ${aguardandoMes.length ? `${avisos.length ? ' · ' : ''}${aguardandoMes.map((p) => mesCurtoAno(p.mes)).join(', ')}` : ''}
+        — aguardando confirmação da gestão.
+      </span>
+    </div>` : '';
+
+  const formHtml = pendentes.length ? `
+    <form data-form="solicitar-pagamento" class="solicitar-form" novalidate>
+      <h3 class="form-title">Avisar pagamento</h3>
+      <div class="form-grid two">
+        <div class="field">
+          <label for="pg-data">Data do pagamento</label>
+          <input id="pg-data" name="data" type="date" value="${hojeISO()}" max="${hojeISO()}" required>
+        </div>
+        <div class="field">
+          <label for="pg-valor">Valor pago (R$)</label>
+          <input id="pg-valor" name="valor" inputmode="decimal" autocomplete="off"
+                 placeholder="${totalAberto.toFixed(2).replace('.', ',')}" required>
+        </div>
+      </div>
       <div class="field">
-        <label for="mes-solicitar">Avisar pagamento</label>
-        <select id="mes-solicitar" name="mes">
-          ${opcoes.map((o) => `
-            <option value="${o.mes}">
-              ${mesLabel(o.mes)} — ${brl(o.valor)}
-            </option>`).join('')}
-        </select>
+        <label for="pg-obs">Observação ou comprovante (opcional)</label>
+        <input id="pg-obs" name="observacao" maxlength="300" autocomplete="off"
+               placeholder="Ex.: Pix de 05/11, link do comprovante">
       </div>
       <button class="btn btn-primary btn-block" type="submit">
         ${icon('receipt')} Avisar pagamento
       </button>
-      <span class="field-hint">
-        A gestão confere o extrato antes de confirmar. Se você já pagou,
-        selecione o mês correspondente.
-      </span>
-    </form>` : status === 'aguardando_auditoria' ? `
-    <div class="pending-note is-audit">
-      ${icon('refresh')} Sua solicitação está em auditoria. A gestão confere e confirma.
-    </div>` : `
-    <div class="pending-note is-ok">
-      ${icon('check')} ${isEx ? 'Sem novas cobranças para ex-bolsistas.' : 'Você está em dia com a caixinha.'}
-    </div>`;
+      <span class="field-hint">O valor quita primeiro as cotas mais antigas.</span>
+    </form>` : '';
 
   return `
     <section class="card member-card">
@@ -594,45 +609,20 @@ function renderMemberCard(m, r) {
           <div class="avatar ${isEx ? 'is-ex' : ''}">${esc(initials(m.nome))}</div>
           <div class="member-info">
             <h2 class="card-title" style="font-size:1rem">${esc(m.nome)}</h2>
-            <p class="card-sub">RA ${esc(m.ra || '—')} · ${esc(m.status_vinculo || 'ATIVO')}</p>
+            <p class="card-sub">RA ${esc(m.ra || '—')}</p>
           </div>
         </div>
         <button class="card-link" type="button" data-action="clear-member">Trocar</button>
       </div>
 
-      <div class="btn-row" style="margin-bottom:12px">
-        ${badgeTipo(isEx)}
-        ${badgeStatus(status)}
-      </div>
-
-      <div class="stat-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-        <div class="stat">
-          <span class="stat-label">Cota de ${mesLabel(r.mes)}</span>
-          <span class="stat-value ${status === 'pago' ? 'is-secondary' : 'is-tertiary'}">
-            ${brl(valorMes)}
-          </span>
-          <span class="stat-hint">${esc(meta.label)}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Total em aberto</span>
-          <span class="stat-value ${Number(m.saldo_devedor || 0) > 0 ? 'is-tertiary' : 'is-secondary'}">
-            ${brl(m.saldo_devedor || 0)}
-          </span>
-          <span class="stat-hint">${m.cotas_pendentes || 0} cota(s)</span>
-        </div>
-      </div>
-
-      ${isEx ? `
-        <p class="field-hint" style="margin-top:10px">
-          Você consta como ex-bolsista. As pendências são históricas e não geram novas cobranças.
-        </p>` : ''}
+      ${abertoHtml}
 
       ${pix ? `
         <div class="pix-box" style="margin-top:12px">
           <div class="pix-box-main">
             ${icon('copy')}
             <div style="min-width:0">
-              <span class="pix-label">Chave Pix oficial</span>
+              <span class="pix-label">Chave Pix</span>
               <span class="pix-value" title="${esc(pix)}">${esc(pix)}</span>
             </div>
           </div>
@@ -641,15 +631,9 @@ function renderMemberCard(m, r) {
           </button>
         </div>` : ''}
 
-      ${solicitacaoHtml}
+      ${avisosHtml}
 
-      ${pendenciasHtml}
-
-      ${emAuditoria.length ? `
-        <p class="field-hint" style="margin-top:10px">
-          ${emAuditoria.length} solicitação(ões) em auditoria:
-          ${emAuditoria.slice(0, 4).map((p) => mesLabel(p.mes)).join(', ')}.
-        </p>` : ''}
+      ${formHtml}
     </section>`;
 }
 
@@ -663,7 +647,7 @@ function renderPagamentosMembro(m) {
       ${pagamentos.map((p) => {
         const meta = statusMeta(p.status_pagamento);
         const iconClass = p.status_pagamento === 'pago' ? 'is-paid'
-          : p.status_pagamento === 'aguardando_auditoria' ? 'is-audit' : '';
+          : p.status_pagamento === 'aguardando_auditoria' ? 'is-wait' : '';
         return `
           <div class="list-row">
             <div class="list-main">
@@ -674,7 +658,7 @@ function renderPagamentosMembro(m) {
                 <div class="list-title">Cota de ${mesLabel(p.mes)}</div>
                 <span class="list-sub">${p.data_pagamento
                   ? `Confirmado em ${dateBR(p.data_pagamento)}`
-                  : 'Importado do histórico'}</span>
+                  : p.status_pagamento === 'pendente' ? 'Em aberto' : 'Do histórico'}</span>
               </div>
             </div>
             <div class="list-right">
@@ -688,7 +672,7 @@ function renderPagamentosMembro(m) {
 
 function renderAdminDashboard() {
   const r = state.resumo || {};
-  const auditoria = state.auditoria || [];
+  const conferencia = state.conferencia || [];
   const caixa = state.caixa || {};
   const ativosMes = r.mes_atual?.ativos || {};
   const telegramOk = Boolean(r.telegram_habilitado);
@@ -713,7 +697,7 @@ function renderAdminDashboard() {
         <div>
           <span class="eyebrow">${icon('lock')} Painel da gestão</span>
           <h1>Membros & cobranças</h1>
-          <p class="subtitle">Cotas, vínculos, conciliação e comunicação com o coletivo.</p>
+          <p class="subtitle">Cotas, conferência e avisos.</p>
         </div>
         <span class="badge badge-active">Caixa ativo</span>
       </div>
@@ -734,8 +718,8 @@ function renderAdminDashboard() {
         <span class="stat-value is-secondary">${brl(ativosMes.valor_pago || 0)}</span>
       </div>
       <div class="stat">
-        <span class="stat-label">Aguardando auditoria</span>
-        <span class="stat-value ${auditoria.length ? 'is-primary' : ''}">${auditoria.length}</span>
+        <span class="stat-label">Aguardando conferência</span>
+        <span class="stat-value ${conferencia.length ? 'is-primary' : ''}">${conferencia.length}</span>
       </div>
     </div>
 
@@ -744,7 +728,7 @@ function renderAdminDashboard() {
         <div class="card-header">
           <div>
             <h2 class="card-title">Cobrança no Telegram</h2>
-            <p class="card-sub">Lembrete humano para ativos com pendência e Telegram vinculado.</p>
+            <p class="card-sub">Lembrete para quem tem pendência e Telegram vinculado.</p>
           </div>
           <button class="btn ${telegramOk ? 'btn-primary' : 'btn-ghost'} btn-sm"
                   type="button" data-action="disparar-telegram" ${telegramOk ? '' : 'disabled'}>
@@ -753,7 +737,7 @@ function renderAdminDashboard() {
         </div>
         <p class="field-hint">
           ${telegramOk
-            ? `${comTelegram} membro(s) com Telegram vinculado. Se ainda não gerou as cotas do mês, use "Gerar cobranças" primeiro. A mensagem inclui a cota, pendências anteriores e um convite para conversar com a gestão. Nada é marcado como pago automaticamente.`
+            ? `${comTelegram} membro(s) com Telegram vinculado. Gere as cobranças do mês antes de disparar.`
             : 'Configure TELEGRAM_BOT_TOKEN no .env para habilitar o disparo.'}
         </p>
       </section>
@@ -775,12 +759,12 @@ function renderAdminDashboard() {
     <section class="card" style="margin-top:14px">
       <div class="card-header">
         <div>
-          <h2 class="card-title">Conciliação de pagamentos</h2>
-          <p class="card-sub">Solicitações feitas pelo bot ou pela web.</p>
+          <h2 class="card-title">Conferência de pagamentos</h2>
+          <p class="card-sub">Avisos feitos pelo bot ou pela web. Ao confirmar, o valor quita as cotas mais antigas primeiro.</p>
         </div>
         <button class="card-link" type="button" data-action="refresh">${icon('refresh')} Atualizar</button>
       </div>
-      ${renderAuditoria(auditoria)}
+      ${renderConferencia(conferencia)}
     </section>
 
     <section class="card" style="margin-top:14px">
@@ -793,10 +777,6 @@ function renderAdminDashboard() {
           ${icon('download')} Exportar ex-bolsistas
         </a>
       </div>
-      <p class="field-hint" style="margin-top:-4px;margin-bottom:10px">
-        Ex-bolsistas ficam guardados no histórico interno e não aparecem na
-        transparência pública. Use o filtro “Ex-bolsistas” para vê-los aqui.
-      </p>
       ${renderToolbar(true)}
       <div id="member-list">${renderMemberRows()}</div>
     </section>`;
@@ -807,21 +787,19 @@ function renderTransparencia() {
   const ativosMes = r.mes_atual?.ativos || {};
   const totalMes = (ativosMes.pagos || 0) + (ativosMes.pendentes || 0) + (ativosMes.em_auditoria || 0);
   const confirmadas = ativosMes.pagos || 0;
-  const acompanhamento = ativosMes.pendentes || 0;
   const adesao = pct(confirmadas, totalMes);
 
   return `
     <section class="page-head">
       <div class="page-head-row">
         <div>
-          <span class="eyebrow"><span class="dot"></span> Transparência ativa</span>
           <h1>O coletivo</h1>
-          <p class="subtitle">Quem faz parte e como a caixinha caminha, com cuidado e sem expor dívidas nominalmente.</p>
+          <p class="subtitle">Quem faz parte da ITCP. Valores individuais não aparecem aqui.</p>
         </div>
       </div>
     </section>
 
-    <div class="stat-grid">
+    <div class="stat-grid stat-grid-2">
       <div class="stat">
         <span class="stat-label">Bolsistas ativos</span>
         <span class="stat-value">${r.membros?.ativos || 0}</span>
@@ -831,87 +809,53 @@ function renderTransparencia() {
         <span class="stat-value is-secondary">${confirmadas} de ${totalMes}</span>
         <span class="stat-hint">${adesao}% do mês</span>
       </div>
-      <div class="stat">
-        <span class="stat-label">Em acompanhamento</span>
-        <span class="stat-value is-tertiary">${acompanhamento}</span>
-        <span class="stat-hint">conversas individuais da gestão</span>
-      </div>
-      <div class="stat">
-        <span class="stat-label">Saldo do livro caixa</span>
-        <span class="stat-value is-secondary">${brl(r.caixa?.saldo || 0)}</span>
-        <span class="stat-hint">caixa aberto e transparente</span>
-      </div>
-    </div>
-
-    <div class="progress-block" style="margin-top:14px">
-      <div class="progress-label">
-        <span>${icon('users')} Cotas de ${mesLabel(r.mes)}</span>
-        <span class="mono text-secondary">${confirmadas} de ${totalMes} confirmadas</span>
-      </div>
-      <div class="progress-track" role="progressbar" aria-valuenow="${adesao}"
-           aria-valuemin="0" aria-valuemax="100">
-        <div class="progress-fill" style="width:${adesao}%"></div>
-      </div>
+      <!-- TODO: reativar o saldo do livro caixa após conciliação de empréstimos e reembolsos -->
     </div>
 
     <section class="card" style="margin-top:14px">
       <div class="card-header">
         <div>
           <h2 class="card-title">Quem está ativo no coletivo</h2>
-          <p class="card-sub" id="member-count">${state.membros.length} pessoa(s) ativa(s) · ex-bolsistas ficam no histórico interno</p>
+          <p class="card-sub" id="member-count">${state.membros.length} pessoa(s)</p>
         </div>
       </div>
       ${renderToolbar(false)}
       <div id="member-list">${renderMembrosNeutros()}</div>
-    </section>
-
-    <section class="card card-low" style="margin-top:14px">
-      <div class="headerless-note">
-        <div class="list-icon is-paid">${icon('favorite')}</div>
-        <div>
-          <h3>Cuidado e conversa, não exposição</h3>
-          <p class="card-sub" style="margin-top:3px">
-            Não publicamos quem está devendo nem valores individuais. A gestão
-            acompanha cada situação em conversa, considerando imprevistos e a
-            realidade de cada pessoa. Ex-bolsistas continuam guardados no
-            histórico interno e não aparecem nesta lista. O que é público é o
-            caixa e a saúde geral do coletivo.
-          </p>
-        </div>
-      </div>
     </section>`;
 }
 
-function renderAuditoria(itens) {
+function renderConferencia(itens) {
   if (!itens.length) {
-    return `<div class="empty">${icon('check')}<div>Nenhum pagamento aguardando auditoria.</div></div>`;
+    return `<div class="empty">${icon('check')}<div>Nada aguardando conferência.</div></div>`;
   }
   return `
     <div class="list">
       ${itens.map((item) => `
-        <div class="audit-row">
+        <div class="confer-row">
           <div class="list-main">
-            <div class="list-icon is-audit">${icon('refresh')}</div>
+            <div class="list-icon is-wait">${icon('refresh')}</div>
             <div>
               <div class="list-title">${esc(item.nome)}</div>
               <span class="list-sub">
-                RA ${esc(item.ra || '—')} · ${mesLabel(item.mes)} ·
+                RA ${esc(item.ra || '—')} ·
+                ${item.tipo === 'valor' ? 'abate as cotas mais antigas' : mesLabel(item.mes)} ·
                 ${esc(item.data_pagamento ? dateBR(item.data_pagamento) : 'sem data')}
               </span>
+              ${item.observacao ? `<span class="list-sub">${esc(item.observacao)}</span>` : ''}
             </div>
           </div>
           <div class="member-amount">
             <span class="value">${brl(item.valor_pago)}</span>
             <span class="label">Aguardando</span>
           </div>
-          <div class="audit-actions">
+          <div class="confer-actions">
             <button class="btn btn-secondary btn-sm" type="button"
-                    data-action="audit" data-id="${item.id}" data-decision="1">
-              ${icon('check')} Aprovar
+                    data-action="conferir" data-id="${item.id}" data-tipo="${item.tipo}" data-decision="1">
+              ${icon('check')} Confirmar
             </button>
             <button class="btn btn-danger btn-sm" type="button"
-                    data-action="audit" data-id="${item.id}" data-decision="0">
-              ${icon('x')} Rejeitar
+                    data-action="conferir" data-id="${item.id}" data-tipo="${item.tipo}" data-decision="0">
+              ${icon('x')} Recusar
             </button>
           </div>
         </div>`).join('')}
@@ -1008,10 +952,14 @@ function renderMemberRows() {
   </div>`;
 }
 
+function tagMembro(m) {
+  return m.recem_ingresso ? 'Recém-ingresso(a)' : 'Na ITCP';
+}
+
 function renderMembrosNeutros() {
-  const lista = membrosFiltrados();
+  const lista = membrosFiltrados().filter((m) => !m.ex_bolsista);
   if (!lista.length) {
-    return `<div class="empty">${icon('users')}<div>Nenhum membro encontrado com esse filtro.</div></div>`;
+    return `<div class="empty">${icon('users')}<div>Ninguém encontrado com esse nome.</div></div>`;
   }
   return `<div class="member-list">
     ${lista.map((m) => `
@@ -1020,13 +968,8 @@ function renderMembrosNeutros() {
           <div class="avatar">${esc(initials(m.nome))}</div>
           <div class="member-info">
             <div class="member-name">${esc(m.nome)}</div>
-            <div class="member-meta">
-              <span>${esc(m.status_vinculo || 'ATIVO')}</span>
-            </div>
+            <span class="member-tag ${m.recem_ingresso ? 'is-new' : ''}">${tagMembro(m)}</span>
           </div>
-        </div>
-        <div class="member-side">
-          <span class="badge badge-active">Ativo</span>
         </div>
       </div>`).join('')}
   </div>`;
@@ -1038,7 +981,9 @@ function updateMemberList() {
     container.innerHTML = state.adminRoute ? renderMemberRows() : renderMembrosNeutros();
   }
   const count = $('#member-count');
-  if (count) count.textContent = `${membrosFiltrados().length} cadastro(s)`;
+  if (count) count.textContent = state.adminRoute
+    ? `${membrosFiltrados().length} cadastro(s)`
+    : `${membrosFiltrados().length} pessoa(s)`;
   $$('.filter-chips .chip').forEach((chip) => {
     const tipo = chip.getAttribute('data-tipo');
     if (tipo) chip.classList.toggle('is-active', state.filters.tipo === tipo);
@@ -1067,7 +1012,7 @@ function renderCaixa() {
         <div>
           <span class="eyebrow">${icon('wallet')} Transparência ativa</span>
           <h1>Livro caixa</h1>
-          <p class="subtitle">Cotas arrecadadas, despesas e série dos últimos 12 meses.</p>
+          <p class="subtitle">Cotas recebidas e despesas.</p>
         </div>
         <button class="icon-btn" type="button" data-action="refresh" aria-label="Atualizar">
           ${icon('refresh')}
@@ -1104,7 +1049,7 @@ function renderCaixa() {
       <div class="card-header">
         <div>
           <h2 class="card-title">Arrecadação por mês</h2>
-          <p class="card-sub">Cotas confirmadas nos últimos 12 meses.</p>
+          <p class="card-sub">Últimos 12 meses.</p>
         </div>
         <div class="chart-legend"><span><i class="legend-dot"></i>Arrecadado</span></div>
       </div>
@@ -1197,7 +1142,7 @@ function renderAssistente() {
         <div>
           <span class="eyebrow">${icon('chat')} Apoio à organização</span>
           <h1>Assistente da caixinha</h1>
-          <p class="subtitle">Respostas determinísticas com os dados reais do coletivo.</p>
+          <p class="subtitle">Tire dúvidas sobre a caixinha.</p>
         </div>
       </div>
     </section>
@@ -1282,9 +1227,9 @@ async function loadMembros() {
   }
 }
 
-async function loadAuditoria() {
-  const data = await api('/api/admin/auditoria');
-  state.auditoria = data.auditoria || [];
+async function loadConferencia() {
+  const data = await api('/api/admin/conferencia');
+  state.conferencia = data.conferencia || [];
 }
 
 async function loadCaixa() {
@@ -1292,7 +1237,7 @@ async function loadCaixa() {
 }
 
 async function loadAdminData() {
-  await Promise.all([fetchResumo(), loadMembros(), loadAuditoria(), loadCaixa()]);
+  await Promise.all([fetchResumo(), loadMembros(), loadConferencia(), loadCaixa()]);
 }
 
 async function showRoute(route, opcoes = {}) {
@@ -1378,7 +1323,7 @@ async function logoutAdmin() {
   state.admin = false;
   state.adminUser = '';
   state.membros = [];
-  state.auditoria = [];
+  state.conferencia = [];
   state.caixa = null;
   state.resumo = null;
   state.filters = { tipo: 'todos', q: '', semTelegram: false };
@@ -1602,24 +1547,41 @@ function openDispararTelegram() {
   });
 }
 
-function openAuditoria(item, aprovado) {
+function openConferencia(item, aprovado) {
+  const detalhe = item.tipo === 'valor'
+    ? `${brl(item.valor_pago)} · ${item.data_pagamento ? dateBR(item.data_pagamento) : 'sem data'}`
+    : `${mesLabel(item.mes)} · ${brl(item.valor_pago)}`;
   openModal({
-    title: aprovado ? 'Aprovar pagamento' : 'Rejeitar solicitação',
-    subtitle: `${item.nome} · ${mesLabel(item.mes)} · ${brl(item.valor_pago)}`,
-    submitLabel: aprovado ? 'Aprovar' : 'Rejeitar',
+    title: aprovado ? 'Confirmar pagamento' : 'Recusar aviso',
+    subtitle: `${item.nome} · ${detalhe}`,
+    submitLabel: aprovado ? 'Confirmar' : 'Recusar',
     danger: !aprovado,
     body: `
+      ${aprovado && item.tipo === 'valor' ? `
+        <p class="small">O valor será abatido do saldo devedor, quitando as cotas mais antigas primeiro.</p>` : ''}
       <div class="field">
-        <label for="audit-obs">Observação (opcional)</label>
-        <textarea id="audit-obs" name="observacao"
+        <label for="confer-obs">Observação (opcional)</label>
+        <textarea id="confer-obs" name="observacao"
           placeholder="${aprovado ? 'Ex.: conferido no extrato de 05/10' : 'Ex.: valor não localizado no extrato'}"></textarea>
       </div>`,
     onSubmit: async (dados) => {
-      await api(`/api/admin/auditoria/${item.id}`, {
+      const resultado = await api(`/api/admin/conferencia/${item.id}`, {
         method: 'POST',
-        body: { aprovar: aprovado, observacao: dados.observacao || null },
+        body: { aprovar: aprovado, observacao: dados.observacao || null, tipo: item.tipo },
       });
-      toast(aprovado ? 'Pagamento aprovado.' : 'Solicitação rejeitada.', aprovado ? 'success' : 'info');
+      if (!aprovado) {
+        toast('Aviso recusado.', 'info');
+      } else if (item.tipo === 'valor') {
+        const quitadas = (resultado.meses_quitados || []).map(mesCurtoAno);
+        const partes = [`${brl(resultado.aplicado)} abatidos`];
+        if (quitadas.length) partes.push(`quitou ${quitadas.join(', ')}`);
+        if (resultado.parcial) {
+          partes.push(`${mesCurtoAno(resultado.parcial.mes)} ainda deve ${brl(resultado.parcial.restante)}`);
+        }
+        toast(partes.join(' · '));
+      } else {
+        toast('Pagamento confirmado.');
+      }
       await refreshData();
     },
   });
@@ -1717,7 +1679,7 @@ async function openDetalheMembro(id) {
           <span class="stat-value">${m.cotas_pagas || 0}</span>
         </div>
         <div class="stat">
-          <span class="stat-label">Auditoria</span>
+          <span class="stat-label">Aguardando</span>
           <span class="stat-value">${m.em_auditoria || 0}</span>
         </div>
       </div>
@@ -1726,7 +1688,7 @@ async function openDetalheMembro(id) {
           ${pagamentos.map((p) => `
             <div class="list-row">
               <div class="list-main">
-                <div class="list-icon ${p.status_pagamento === 'pago' ? 'is-paid' : p.status_pagamento === 'aguardando_auditoria' ? 'is-audit' : ''}">
+                <div class="list-icon ${p.status_pagamento === 'pago' ? 'is-paid' : p.status_pagamento === 'aguardando_auditoria' ? 'is-wait' : ''}">
                   ${icon(p.status_pagamento === 'pago' ? 'check' : 'receipt')}
                 </div>
                 <div>
@@ -1742,24 +1704,34 @@ async function openDetalheMembro(id) {
   });
 }
 
-async function solicitarPagamentoMes(mes) {
+async function solicitarPagamento(dados) {
   if (!state.ra) return;
-  const mesEscolhido = mes || state.resumo?.mes || mesAtualISO();
+  const valor = parseValor(dados.valor);
+  if (!Number.isFinite(valor) || valor <= 0) {
+    toast('Informe o valor pago.', 'error');
+    return;
+  }
+  const aberto = Number(state.membro?.saldo_devedor || 0);
+  if (aberto && valor - aberto > 0.001) {
+    toast(`O valor é maior que o total em aberto (${brl(aberto)}).`, 'error');
+    return;
+  }
   try {
     const resultado = await api('/api/solicitar-pagamento', {
       method: 'POST',
-      body: { ra: state.ra, mes: mesEscolhido },
+      body: {
+        ra: state.ra,
+        valor,
+        data: dados.data || hojeISO(),
+        observacao: dados.observacao || null,
+      },
     });
     state.membro = resultado.membro;
-    toast(resultado.mensagem || 'Solicitação registrada.');
+    toast(resultado.mensagem || 'Aviso enviado.');
     await refreshData();
   } catch (error) {
-    toast(error.message || 'Não foi possível solicitar.', 'error');
+    toast(error.message || 'Não foi possível enviar o aviso.', 'error');
   }
-}
-
-async function solicitarPagamento() {
-  return solicitarPagamentoMes(state.resumo?.mes || mesAtualISO());
 }
 
 async function copiarPix() {
@@ -1843,8 +1815,8 @@ async function handleAction(element) {
     case 'copy-pix':
       await copiarPix();
       break;
-    case 'solicitar':
-      await solicitarPagamento();
+    case 'toggle-theme':
+      toggleTheme();
       break;
     case 'generate':
       openGerarCobrancas();
@@ -1858,10 +1830,12 @@ async function handleAction(element) {
     case 'member-detail':
       await openDetalheMembro(Number(element.dataset.id));
       break;
-    case 'audit':
+    case 'conferir':
       {
-        const item = state.auditoria.find((a) => Number(a.id) === Number(element.dataset.id));
-        if (item) openAuditoria(item, element.dataset.decision === '1');
+        const item = state.conferencia.find((a) => (
+          Number(a.id) === Number(element.dataset.id) && a.tipo === element.dataset.tipo
+        ));
+        if (item) openConferencia(item, element.dataset.decision === '1');
       }
       break;
     case 'open-expense':
@@ -1916,9 +1890,9 @@ async function handleSubmit(form) {
     }
     return;
   }
-  if (tipo === 'solicitar-mes') {
+  if (tipo === 'solicitar-pagamento') {
     const dados = Object.fromEntries(new FormData(form).entries());
-    await solicitarPagamentoMes(dados.mes);
+    await solicitarPagamento(dados);
     return;
   }
   if (tipo === 'chat') {
