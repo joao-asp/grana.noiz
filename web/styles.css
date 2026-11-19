@@ -1,7 +1,8 @@
 /* ==========================================================================
    grana.noiz — caixinha da ITCP
-   Um acento (ocre), cores de status só em texto/marcador, mono só em números.
-   Mantém todos os nomes de classe do app.js; o que muda é o que há por baixo.
+   Paleta azul acolhedora (índigo/petróleo), modos claro e escuro.
+   Tema controlado por <html data-theme="light|dark"> (ver theme.js/app.js).
+   Mantém todos os nomes de classe do app.js.
    ========================================================================== */
 
 /* Fonte: carregue localmente (self-hosted) e descomente.
@@ -14,22 +15,29 @@
 */
 
 :root {
-  /* cor */
-  --bg: #16181b;
-  --surface: #1c1f23;
-  --surface-2: #24282d;
-  --line: #2e3339;
-  --text: #e8e6e1;
-  --muted: #9a9fa5;
-  --accent: #dba94a;
-  --accent-ink: #231a05;
-  --ok: #86c99a;
-  --warn: #e6b45c;
-  --bad: #e59a90;
+  /* tema claro (padrão) */
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-2: #EEF2F7;
+  --line: #DCE3EC;
+  --text: #0F172A;
+  --muted: #526077;
+  --accent: #1E40AF;          /* azul profundo: identidade e botões */
+  --accent-ink: #FFFFFF;
+  --accent-bg: #E3EAFB;
+  --ok: #0B7A5A;              /* verde esmeralda suave: confirmado */
+  --ok-bg: #DDF3EA;
+  --warn: #C0452F;            /* coral suave: pendência */
+  --warn-bg: #FCE7E2;
+  --wait: #1D6FB8;            /* azul claro: aguardando confirmação */
+  --wait-bg: #DDEBF9;
+  --bad: #B3261E;
+  --overlay: rgba(15, 23, 42, 0.45);
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.04);
 
   /* forma */
-  --r-sm: 6px;
-  --r: 10px;
+  --r-sm: 8px;
+  --r: 14px;
 
   /* tipografia (escala única) */
   --t-xs: 0.75rem;
@@ -48,6 +56,28 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* tema escuro: azul-ardósia, nunca preto puro */
+:root[data-theme="dark"] {
+  --bg: #0F172A;
+  --surface: #1E293B;
+  --surface-2: #273449;
+  --line: #334155;
+  --text: #E8EEF7;
+  --muted: #9AA8BD;
+  --accent: #60A5FA;
+  --accent-ink: #0B1B33;
+  --accent-bg: #1F3256;
+  --ok: #5FD3A6;
+  --ok-bg: #153B35;
+  --warn: #F59A86;
+  --warn-bg: #43262B;
+  --wait: #8CC4F5;
+  --wait-bg: #1C3552;
+  --bad: #F2A3A0;
+  --overlay: rgba(8, 14, 28, 0.62);
+  --shadow: none;
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
@@ -59,6 +89,8 @@ body {
   color: var(--text);
   font: var(--t-md) / 1.5 var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 body.modal-open { overflow: hidden; }
@@ -192,6 +224,7 @@ a { color: inherit; text-decoration: none; }
   padding: 18px;
   border: 1px solid var(--line); border-radius: var(--r);
   background: var(--surface);
+  box-shadow: var(--shadow);
 }
 .card-low { background: transparent; }
 .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
@@ -206,7 +239,7 @@ a { color: inherit; text-decoration: none; }
 .card-link:hover { background: var(--surface-2); }
 
 .section-gap, .grid-2, .grid-3, .stat-grid { display: grid; gap: 14px; }
-.stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: var(--r); }
+.stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
 
 /* estatística: sem caixa própria, separada por linha fina */
 .stat { padding: 14px 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
@@ -221,7 +254,7 @@ a { color: inherit; text-decoration: none; }
 }
 .stat-value.is-primary { color: var(--accent); }
 .stat-value.is-secondary { color: var(--ok); }
-.stat-value.is-tertiary { color: var(--warn); }
+.stat-value.is-tertiary, .stat-value.is-pending { color: var(--warn); }
 .stat-value.is-error { color: var(--bad); }
 .stat-hint { display: block; margin-top: 3px; color: var(--muted); font-size: var(--t-xs); }
 
@@ -263,7 +296,7 @@ a { color: inherit; text-decoration: none; }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .badge-paid, .badge-active { color: var(--ok); }
 .badge-pending { color: var(--warn); }
-.badge-audit { color: var(--accent); }
+.badge-wait { color: var(--wait); }
 .badge-ex { color: var(--bad); }
 .badge-neutral { color: var(--muted); }
 
@@ -279,6 +312,7 @@ a { color: inherit; text-decoration: none; }
 
 .btn-primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
 .btn-primary:hover { filter: brightness(1.08); border-color: var(--accent); }
+.btn-primary:active { transform: translateY(1px); }
 .btn-ghost { background: transparent; color: var(--muted); }
 .btn-ghost:hover { color: var(--text); }
 .btn-secondary { background: transparent; border-color: var(--ok); color: var(--ok); }
@@ -316,10 +350,10 @@ a { color: inherit; text-decoration: none; }
 .pix-label { display: block; color: var(--muted); font-size: var(--t-xs); }
 .pix-value { display: block; overflow: hidden; font-family: var(--font-mono); font-size: var(--t-sm); text-overflow: ellipsis; white-space: nowrap; }
 
-/* linhas de lista, membros e auditoria compartilham o mesmo desenho:
+/* linhas de lista, membros e conferência compartilham o mesmo desenho:
    sem caixa por linha, só divisória fina */
 .list, .member-list { display: grid; }
-.list-row, .member-row, .audit-row {
+.list-row, .member-row, .confer-row {
   padding: 12px 0; border-top: 1px solid var(--line);
 }
 .list > :first-child, .member-list > :first-child { border-top: 0; }
@@ -344,11 +378,13 @@ a { color: inherit; text-decoration: none; }
 .field input, .field select, .field textarea {
   width: 100%; min-height: 44px; padding: 10px 12px;
   border: 1px solid var(--line); border-radius: var(--r-sm);
-  background: var(--bg); font-size: var(--t-md);
+  background: var(--surface); font-size: var(--t-md);
+  min-width: 0;
 }
+.field input[type="date"] { -webkit-appearance: none; appearance: none; }
 .field textarea { min-height: 96px; resize: vertical; }
 .field input::placeholder, .field textarea::placeholder { color: var(--muted); opacity: 0.7; }
-.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); outline: none; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-bg); }
 .field-hint { color: var(--muted); font-size: var(--t-xs); }
 
 .form-grid { display: grid; gap: 12px; }
@@ -410,7 +446,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* --------------------------------------------------------------------------
-   Admin, auditoria, pendências
+   Admin, conferência, pendências
    -------------------------------------------------------------------------- */
 
 .lock-card {
@@ -419,11 +455,11 @@ a { color: inherit; text-decoration: none; }
 }
 .lock-icon { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--accent); }
 
-.audit-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
-.audit-actions { display: flex; gap: 6px; grid-column: 1 / -1; }
+.confer-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.confer-actions { display: flex; gap: 6px; grid-column: 1 / -1; }
 @media (min-width: 700px) {
-  .audit-row { grid-template-columns: minmax(0, 1fr) auto auto; }
-  .audit-actions { grid-column: auto; }
+  .confer-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .confer-actions { grid-column: auto; }
 }
 
 .headerless-note { display: flex; align-items: flex-start; gap: 11px; }
@@ -474,7 +510,7 @@ a { color: inherit; text-decoration: none; }
    Modal, toast, skeleton
    -------------------------------------------------------------------------- */
 
-.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-end; justify-content: center; background: rgba(0, 0, 0, 0.7); }
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-end; justify-content: center; background: var(--overlay); }
 .modal {
   width: 100%; max-height: 92dvh; overflow-y: auto;
   padding: 20px 16px calc(20px + var(--safe-bottom));
@@ -554,7 +590,7 @@ a { color: inherit; text-decoration: none; }
   gap: 8px;
 }
 .pending-note.is-ok { color: var(--ok); }
-.pending-note.is-audit { color: var(--accent); }
+.pending-note.is-wait { color: var(--wait); }
 .solicitar-form {
   padding-top: 14px;
   border-top: 1px solid var(--line);
@@ -581,4 +617,101 @@ a { color: inherit; text-decoration: none; }
 .member-card .card-header .card-link {
   flex: 0 0 auto;
   align-self: flex-start;
+}
+
+
+/* --------------------------------------------------------------------------
+   Tema, resumo de dívida, tags e ajustes de componentes
+   -------------------------------------------------------------------------- */
+
+.topbar-right { flex: 0 0 auto; }
+.icon-btn .icon { width: 18px; height: 18px; }
+.icon-btn:focus-visible { outline-offset: 2px; }
+
+.admin-login-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.admin-login-top .brand { padding-bottom: 0; justify-content: flex-start; }
+
+.home-grid { display: grid; gap: 14px; align-items: start; }
+@media (min-width: 960px) { .home-grid { max-width: 640px; } }
+
+.stat-grid.stat-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.stat-grid-2 .stat { border-bottom: 0; border-right: 1px solid var(--line); }
+.stat-grid-2 .stat:nth-child(2n) { border-right: 0; }
+
+/* resumo do que está em aberto (meses + total) */
+.debt-summary { display: grid; gap: 14px; padding: 14px; border-radius: var(--r-sm); background: var(--warn-bg); }
+.debt-total .stat-value { font-size: var(--t-xl); }
+.debt-months .stat-label { margin-bottom: 8px; }
+.month-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.month-pill {
+  padding: 3px 10px; border: 1px solid var(--warn); border-radius: 999px;
+  background: var(--surface); color: var(--warn);
+  font-size: var(--t-xs); font-weight: 600; white-space: nowrap;
+}
+
+.pending-note { padding: 12px 14px; margin-top: 12px; border-radius: var(--r-sm); background: var(--surface-2); }
+.pending-note.is-ok { background: var(--ok-bg); }
+.pending-note.is-wait { background: var(--wait-bg); }
+.pending-note .icon { margin-top: 1px; }
+
+.form-title { margin-bottom: -2px; font-size: var(--t-md); }
+.solicitar-form { margin-top: 14px; }
+
+/* tags simples da lista do coletivo */
+.member-tag {
+  display: inline-block; margin-top: 3px; padding: 1px 9px;
+  border-radius: 999px; background: var(--surface-2); color: var(--muted);
+  font-size: var(--t-xs); font-weight: 500;
+}
+.member-tag.is-new { background: var(--ok-bg); color: var(--ok); }
+
+.avatar { background: var(--accent-bg); color: var(--accent); }
+.avatar.is-ex { background: var(--warn-bg); color: var(--warn); }
+.list-icon.is-wait { color: var(--wait); }
+
+.brand-word { color: var(--accent); }
+.side-nav a.is-active { background: var(--accent-bg); color: var(--accent); }
+.side-nav a:hover { background: var(--surface-2); }
+.bottom-nav a.is-active { color: var(--accent); }
+.progress-fill { background: var(--ok); }
+.chart-bar > i, .legend-dot { background: var(--accent); }
+.msg-bot { background: var(--surface-2); }
+
+/* --------------------------------------------------------------------------
+   Mobile-first: 360px–430px sem rolagem horizontal
+   -------------------------------------------------------------------------- */
+
+.main, .card, .stat, .member-info, .list-main, .field { min-width: 0; }
+img, svg { max-width: 100%; }
+
+@media (max-width: 480px) {
+  .main { padding: 16px 14px calc(var(--bottom-nav-height) + var(--safe-bottom) + 20px); }
+  .card { padding: 16px 14px; }
+  .topbar { padding-right: 12px; padding-left: 14px; }
+  .stat { padding: 12px; }
+  .stat-value { font-size: var(--t-md); }
+  .debt-total .stat-value { font-size: 1.5rem; }
+  .page-head-row { flex-wrap: nowrap; }
+  .page-head-row .month-chip { flex: 0 0 auto; }
+  .pix-box { flex-wrap: wrap; }
+  .pix-box .btn { width: 100%; }
+  .modal { padding-right: 14px; padding-left: 14px; }
+  .toolbar .chip { min-height: 38px; }
+  .confer-actions .btn { flex: 1 1 0; }
+  .admin-main { padding-right: 14px; padding-left: 14px; }
+  .admin-actions .btn { flex: 1 1 auto; }
+}
+
+@media (max-width: 380px) {
+  .topbar-kicker { display: none; }
+  .page-head-row { flex-wrap: wrap; }
+  .page-head-row .month-chip { display: none; }
+  .brand-sub { display: none; }
+}
+
+/* campos do formulário de pagamento: lado a lado só quando há espaço */
+@media (max-width: 619px) {
+  .form-grid.two { grid-template-columns: minmax(0, 1fr); }
 }
