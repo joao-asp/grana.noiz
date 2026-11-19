@@ -588,7 +588,7 @@ function renderMemberCard(m, r) {
     </div>`;
 
   return `
-    <section class="card">
+    <section class="card member-card">
       <div class="card-header">
         <div class="member-main">
           <div class="avatar ${isEx ? 'is-ex' : ''}">${esc(initials(m.nome))}</div>
