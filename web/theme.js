@@ -10,5 +10,5 @@
   raiz.setAttribute('data-theme', tema);
   raiz.style.colorScheme = tema;
   var meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', tema === 'dark' ? '#0F172A' : '#F8FAFC');
+  if (meta) meta.setAttribute('content', tema === 'dark' ? '#13171A' : '#F4F5F2');
 })();

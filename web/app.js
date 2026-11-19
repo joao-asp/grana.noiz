@@ -42,18 +42,23 @@ const ICONS = {
 
 const NAV = [
   { route: 'inicio', label: 'Início', icon: 'home' },
-  { route: 'transparencia', label: 'Coletivo', icon: 'users' },
+  { route: 'transparencia', label: 'ITCP', icon: 'users' },
   { route: 'caixa', label: 'Caixa', icon: 'wallet' },
   { route: 'assistente', label: 'Assistente', icon: 'chat' },
+  { route: 'sobre', label: 'Sobre', icon: 'info' },
 ];
 
 const PAGE_TITLES = {
-  inicio: 'Visão geral',
-  transparencia: 'Coletivo',
+  inicio: 'Início',
+  transparencia: 'ITCP',
   caixa: 'Livro caixa',
-  assistente: 'Assistente da caixinha',
+  assistente: 'Assistente',
+  sobre: 'Sobre',
   admin: 'Painel da gestão',
 };
+
+const FRENTES_EQUIPES = ['Tainã', 'Agricultura', 'Loucura', 'Gênero', 'Rede'];
+const FRENTES_GEPAS = ['GEPA 1', 'GEPA 2', 'GEPA 3', 'GEPA 4'];
 
 const state = {
   route: 'inicio',
@@ -66,6 +71,7 @@ const state = {
   adminUser: '',
   membros: [],
   conferencia: [],
+  reembolsos: [],
   caixa: null,
   filters: { tipo: 'todos', q: '', semTelegram: false },
   chat: [],
@@ -147,7 +153,7 @@ function initials(name) {
 }
 
 function firstName(name) {
-  return String(name || '').trim().split(/\s+/)[0] || 'coletivo';
+  return String(name || '').trim().split(/\s+/)[0] || 'ITCP';
 }
 
 /* --------------------------------------------------------------------------
@@ -163,7 +169,7 @@ function applyTheme(theme) {
   root.setAttribute('data-theme', theme);
   root.style.colorScheme = theme;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0F172A' : '#F8FAFC');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#13171A' : '#F4F5F2');
 }
 
 function toggleTheme() {
@@ -281,15 +287,17 @@ function brandMarkup(link = true) {
   const tag = link ? 'a' : 'div';
   const href = link ? ' href="/#/inicio"' : '';
   return `<${tag} class="brand"${href} aria-label="grana.noiz, início">
-    <span class="brand-word">grana.noiz</span>
-    <span class="brand-slash">/</span>
-    <span class="brand-sub">itcp-unicamp</span>
+    <span class="itcp-logo-slot" title="Espaço reservado para logo da ITCP">ITCP</span>
+    <span class="brand-text">
+      <span class="brand-word">grana.noiz</span>
+      <span class="brand-slash">/</span>
+      <span class="brand-sub">itcp</span>
+    </span>
   </${tag}>`;
 }
 
 function renderShell(viewHtml) {
   const route = state.route;
-  const mes = state.resumo?.mes || mesAtualISO();
 
   const sideLinks = NAV.map((item) => `
     <a href="#/${item.route}" data-route="${item.route}"
@@ -310,25 +318,25 @@ function renderShell(viewHtml) {
       ${brandMarkup(true)}
       <nav class="side-nav">${sideLinks}</nav>
       <div class="sidebar-foot">
-        <div class="status-line"><span class="dot"></span> Caixa ativo</div>
+        <div class="status-line"><span class="dot"></span> Caixinha ITCP</div>
       </div>
     </aside>
 
     <header class="topbar">
       <div class="topbar-left">
         <div>
-          <span class="topbar-kicker">grana.noiz / itcp</span>
-          <span class="topbar-title">${esc(PAGE_TITLES[route] || 'Caixinha')}</span>
+          <span class="topbar-title">grana.noiz / ITCP</span>
         </div>
       </div>
       <div class="topbar-right">
-        <span class="month-chip">${mesShort(mes)}</span>
         ${themeToggleMarkup()}
       </div>
     </header>
 
     <main id="conteudo" class="main" aria-busy="${state.loading ? 'true' : 'false'}">
-      ${viewHtml}
+      <div class="content-wrap">
+        ${viewHtml}
+      </div>
     </main>
 
     <nav class="bottom-nav" aria-label="Navegação inferior">${bottomLinks}</nav>
@@ -344,7 +352,7 @@ function renderAdminLogin() {
           <div class="lock-icon">${icon('lock')}</div>
           <span class="eyebrow" style="margin-top:16px">Acesso restrito</span>
           <h1 style="margin-top:6px">Painel da gestão</h1>
-          <p class="subtitle">Entre com usuário e senha para cuidar das cotas, da conciliação e das cobranças.</p>
+          <p class="subtitle">Entre com usuário e senha para conferir pagamentos e gerenciar a caixinha da ITCP.</p>
           ${state.resumo?.admin_login_configurado === false ? `
             <div class="empty" style="margin-top:16px">
               ${icon('alert')}
@@ -403,8 +411,10 @@ function renderAdminShell() {
           </button>
         </div>
       </header>
-      <main id="conteudo" class="main admin-main" aria-busy="false">
-        ${renderAdminDashboard()}
+      <main id="conteudo" class="admin-main" aria-busy="false">
+        <div class="content-wrap">
+          ${renderAdminDashboard()}
+        </div>
       </main>
     </div>`;
 }
@@ -436,68 +446,135 @@ function renderError(message) {
     </section>`;
 }
 
+function renderFrentePickerMarkup(inputName = 'frente', defaultFrente = 'Tainã') {
+  const equipes = state.resumo?.frentes_reembolso?.equipes || FRENTES_EQUIPES;
+  const gepas = state.resumo?.frentes_reembolso?.gepas || FRENTES_GEPAS;
+  const isGepa = gepas.includes(defaultFrente);
+  const initialGroup = isGepa ? 'gepa' : 'equipe';
+  const initialFrente = defaultFrente || equipes[0] || 'Tainã';
+
+  return `
+    <div class="frente-picker" data-frente-picker>
+      <input type="hidden" name="${esc(inputName)}" value="${esc(initialFrente)}" data-frente-input>
+      <div class="seg-control" role="tablist" aria-label="Tipo de frente">
+        <button type="button" class="seg-btn ${initialGroup === 'equipe' ? 'is-active' : ''}"
+                data-action="select-frente-group" data-group="equipe">
+          Equipes
+        </button>
+        <button type="button" class="seg-btn ${initialGroup === 'gepa' ? 'is-active' : ''}"
+                data-action="select-frente-group" data-group="gepa">
+          GEPAs
+        </button>
+      </div>
+      <div class="frente-options ${initialGroup === 'equipe' ? '' : 'hidden'}" data-frente-list="equipe">
+        ${equipes.map((f) => `
+          <button type="button" class="frente-chip ${initialFrente === f ? 'is-active' : ''}"
+                  data-action="select-frente-item" data-frente="${esc(f)}">${esc(f)}</button>`).join('')}
+      </div>
+      <div class="frente-options ${initialGroup === 'gepa' ? '' : 'hidden'}" data-frente-list="gepa">
+        ${gepas.map((f) => `
+          <button type="button" class="frente-chip ${initialFrente === f ? 'is-active' : ''}"
+                  data-action="select-frente-item" data-frente="${esc(f)}">${esc(f)}</button>`).join('')}
+      </div>
+    </div>`;
+}
+
+function renderStatusReembolsoPickerMarkup(defaultPago = false) {
+  return `
+    <div class="status-picker" data-status-picker>
+      <input type="hidden" name="ja_pago" value="${defaultPago ? '1' : '0'}" data-status-input>
+      <div class="status-toggle-group" role="radiogroup" aria-label="Status do reembolso">
+        <button type="button" class="status-opt is-pending ${!defaultPago ? 'is-active' : ''}"
+                data-action="select-reembolso-status" data-paid="0">
+          <span class="status-dot"></span>
+          <span>Ainda não foi feito (pendente)</span>
+        </button>
+        <button type="button" class="status-opt is-paid ${defaultPago ? 'is-active' : ''}"
+                data-action="select-reembolso-status" data-paid="1">
+          <span class="status-dot"></span>
+          <span>Já foi feito (pago)</span>
+        </button>
+      </div>
+    </div>`;
+}
+
 function renderInicio() {
   const r = state.resumo;
   if (!r) return renderError('A API da caixinha não respondeu.');
   const m = state.membro;
   const ativosMes = r.mes_atual?.ativos || {};
   const totalAtivos = r.membros?.ativos || 0;
+  const pagamentosMes = ativosMes.pagos || 0;
 
   const memberCard = m ? renderMemberCard(m, r) : `
     <section class="card member-entry-card">
       <div class="card-header">
         <div>
-          <span class="eyebrow">${icon('users')} Minha caixinha</span>
-          <h2 class="card-title" style="margin-top:7px">Entre com seu RA</h2>
-          <p class="card-sub">Veja o que está em aberto e avise quando pagar.</p>
+          <h2 class="card-title">Consultar pelo RA</h2>
+          <p class="card-sub">Veja sua situação na caixinha e avise quando pagar.</p>
         </div>
       </div>
       <form data-form="buscar-ra" class="form-grid">
         <div class="field">
-          <label for="ra-input">Seu RA na ITCP/Unicamp</label>
+          <label for="ra-input">Seu RA</label>
           <input id="ra-input" name="ra" inputmode="numeric" autocomplete="off"
                  placeholder="Ex.: 248340" required>
-          <span class="field-hint">Só usamos o RA para localizar seu cadastro. Sem senha, sem dados bancários.</span>
         </div>
         <button class="btn btn-primary btn-block" type="submit">
-          ${icon('search')} Ver o que eu devo
+          ${icon('search')} Consultar
         </button>
       </form>
     </section>`;
 
-  /* TODO: reativar após conciliação de empréstimos e reembolsos
-  const healthCard = `
-    <section class="card">
+  const reembolsoCard = `
+    <section class="card" style="margin-top:14px">
       <div class="card-header">
         <div>
-          <span class="eyebrow">${icon('wallet')} Saúde da caixinha</span>
-          <h2 class="card-title" style="margin-top:7px">Saldo do livro caixa</h2>
+          <h2 class="card-title">Pedir reembolso</h2>
+          <p class="card-sub">Para gastos do cotidiano da ITCP (uber/transporte, lanche, materiais de oficina etc.).</p>
         </div>
-        <span class="badge badge-active">Coletivo ativo</span>
+        <button class="btn btn-primary btn-sm" type="button" data-action="open-reembolso">
+          ${icon('plus')} Novo pedido
+        </button>
       </div>
-      <div class="money-lg">${brl(r.caixa?.saldo || 0)}</div>
-      <p class="card-sub" style="margin-top:5px">
-        ${brl(r.caixa?.total_pago || 0)} arrecadados ·
-        ${brl(r.caixa?.total_despesas || 0)} em despesas
-      </p>
-      <div class="progress-block">
-        <div class="progress-label">
-          <span>${icon('users')} Cotas de ${mesLabel(r.mes)}</span>
-          <span class="mono text-secondary">${ativosMes.pagos || 0} de ${cotasMes} (${adesao}%)</span>
-        </div>
-        <div class="progress-track" role="progressbar" aria-valuenow="${adesao}"
-             aria-valuemin="0" aria-valuemax="100">
-          <div class="progress-fill" style="width:${adesao}%"></div>
-        </div>
-      </div>
+      ${m?.reembolsos?.length ? `
+        <div class="list">
+          ${m.reembolsos.slice(0, 4).map((rb) => {
+            const st = rb.status === 'aprovado'
+              ? { label: 'Já feito / Pago', cls: 'badge-paid' }
+              : rb.status === 'rejeitado'
+                ? { label: 'Recusado', cls: 'badge-ex' }
+                : { label: 'Pendente (a receber)', cls: 'badge-wait' };
+            return `
+              <div class="list-row">
+                <div class="list-main">
+                  <div>
+                    <div class="list-title">
+                      <span class="frente-tag" style="margin-right:6px">${esc(rb.frente)}</span>
+                      ${esc(rb.descricao)}
+                    </div>
+                    <span class="list-sub">${dateBR(rb.data_gasto)}</span>
+                  </div>
+                </div>
+                <div class="list-right">
+                  <span class="list-value">${brl(rb.valor)}</span>
+                  <span class="badge ${st.cls}" style="margin-top:4px">${st.label}</span>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>` : `
+        <p class="field-hint">Escolha Equipe ou GEPA, informe valor, chave Pix e se o reembolso já foi feito ou está pendente.</p>`}
     </section>`;
-  */
 
-  const movimentacoes = m ? `
-    <section class="card">
+  const pagosDoMembro = (m?.pagamentos || []).filter(
+    (p) => p.status_pagamento === 'pago' || p.status_pagamento === 'aguardando_auditoria',
+  );
+  const movimentacoes = (m && pagosDoMembro.length) ? `
+    <section class="card" style="margin-top:14px">
       <div class="card-header">
         <div>
-          <h2 class="card-title">Minhas movimentações</h2>
+          <h2 class="card-title">Histórico de pagamentos</h2>
+          <p class="card-sub">Pagamentos já confirmados ou em conferência.</p>
         </div>
       </div>
       ${renderPagamentosMembro(m)}
@@ -507,12 +584,11 @@ function renderInicio() {
     <section class="page-head">
       <div class="page-head-row">
         <div>
-          <h1>Olá, ${m ? esc(firstName(m.nome)) : 'coletivo'}</h1>
+          <h1>Olá, ${m ? esc(firstName(m.nome)) : 'ITCP'}</h1>
           <p class="subtitle">${m
-            ? 'Seu espaço na caixinha.'
-            : 'Entre com seu RA para ver sua situação.'}</p>
+            ? 'Sua situação na caixinha da ITCP.'
+            : 'Caixinha da ITCP.'}</p>
         </div>
-        <span class="month-chip">${mesLabel(r.mes)}</span>
       </div>
     </section>
 
@@ -520,16 +596,18 @@ function renderInicio() {
       ${memberCard}
     </div>
 
+    ${reembolsoCard}
+
     <div class="stat-grid stat-grid-2" style="margin-top:14px">
       <div class="stat">
-        <span class="stat-label">Bolsistas ativos</span>
+        <span class="stat-label">Pessoas na ITCP</span>
         <span class="stat-value">${totalAtivos}</span>
-        <span class="stat-hint">pessoas contribuindo</span>
+        <span class="stat-hint">bolsistas ativos</span>
       </div>
       <div class="stat">
-        <span class="stat-label">Pago no mês</span>
-        <span class="stat-value is-secondary">${brl(ativosMes.valor_pago || 0)}</span>
-        <span class="stat-hint">${ativosMes.pagos || 0} cota(s) confirmada(s)</span>
+        <span class="stat-label">Pagamentos no mês</span>
+        <span class="stat-value is-secondary">${pagamentosMes}</span>
+        <span class="stat-hint">${pagamentosMes === 1 ? '1 pagamento feito este mês' : `${pagamentosMes} pagamentos feitos este mês`} · ${brl(ativosMes.valor_pago || 0)}</span>
       </div>
     </div>
 
@@ -547,25 +625,62 @@ function renderMemberCard(m, r) {
   const avisos = m.solicitacoes_aguardando || [];
   const aguardandoMes = pagamentos.filter((p) => p.status_pagamento === 'aguardando_auditoria');
 
+  const reembolsosAReceber = (m.reembolsos || [])
+    .filter((rb) => rb.status === 'aguardando')
+    .reduce((acc, rb) => acc + Number(rb.valor || 0), 0);
+
+  let periodoAberto = '';
+  if (pendentes.length === 1) {
+    periodoAberto = `Referente a ${mesCurtoAno(pendentes[0].mes)}`;
+  } else if (pendentes.length > 1) {
+    periodoAberto = `${pendentes.length} meses em aberto (${mesCurtoAno(pendentes[0].mes)} a ${mesCurtoAno(pendentes[pendentes.length - 1].mes)})`;
+  }
+
   const abertoHtml = pendentes.length ? `
     <div class="debt-summary">
       <div class="debt-total">
         <span class="stat-label">Total em aberto</span>
-        <span class="stat-value is-pending">${brl(totalAberto)}</span>
-        <span class="stat-hint">${pendentes.length} cota(s)</span>
-      </div>
-      <div class="debt-months">
-        <span class="stat-label">Meses em aberto</span>
-        <ul class="month-chips">
-          ${pendentes.map((p) => `
-            <li class="month-pill" title="${brl(p.valor_pago)}">${esc(mesCurtoAno(p.mes))}</li>`).join('')}
-        </ul>
+        <span class="stat-value">${brl(totalAberto)}</span>
+        <span class="debt-range">${esc(periodoAberto)}</span>
       </div>
     </div>` : `
     <div class="pending-note is-ok">
       ${icon('check')}
-      <span>${isEx ? 'Sem pendências em aberto.' : 'Tudo em dia por aqui. 💙'}</span>
+      <span>${isEx ? 'Sem pendências em aberto.' : 'Tudo em dia por aqui.'}</span>
     </div>`;
+
+  let balancoHtml = '';
+  if (reembolsosAReceber > 0 && totalAberto > 0) {
+    const diff = Number((reembolsosAReceber - totalAberto).toFixed(2));
+    let resumoFinal = 'Valores equivalentes (acerto zerado com a caixinha).';
+    if (diff > 0) {
+      resumoFinal = `Saldo líquido a receber da caixinha: ${brl(diff)}`;
+    } else if (diff < 0) {
+      resumoFinal = `Restante a pagar após abater seus reembolsos: ${brl(Math.abs(diff))}`;
+    }
+    balancoHtml = `
+      <div class="balance-box">
+        <div class="balance-head">
+          <span>Balanço com reembolsos pendentes</span>
+        </div>
+        <div class="balance-grid">
+          <span>Reembolsos a receber: <strong class="mono">${brl(reembolsosAReceber)}</strong></span>
+          <span>Em aberto na caixinha: <strong class="mono">${brl(totalAberto)}</strong></span>
+        </div>
+        <div class="balance-result">${resumoFinal}</div>
+      </div>`;
+  } else if (reembolsosAReceber > 0) {
+    balancoHtml = `
+      <div class="balance-box">
+        <div class="balance-head">
+          <span>Reembolsos a receber</span>
+          <span class="mono">${brl(reembolsosAReceber)}</span>
+        </div>
+        <div class="balance-grid">
+          <span>Sem meses pendentes na caixinha.</span>
+        </div>
+      </div>`;
+  }
 
   const avisosHtml = (avisos.length || aguardandoMes.length) ? `
     <div class="pending-note is-wait">
@@ -573,7 +688,7 @@ function renderMemberCard(m, r) {
       <span>
         ${avisos.map((a) => `${brl(a.valor)} em ${dateBR(a.data_pagamento)}`).join(' · ')}
         ${aguardandoMes.length ? `${avisos.length ? ' · ' : ''}${aguardandoMes.map((p) => mesCurtoAno(p.mes)).join(', ')}` : ''}
-        — aguardando confirmação da gestão.
+        — aguardando confirmação.
       </span>
     </div>` : '';
 
@@ -599,7 +714,7 @@ function renderMemberCard(m, r) {
       <button class="btn btn-primary btn-block" type="submit">
         ${icon('receipt')} Avisar pagamento
       </button>
-      <span class="field-hint">O valor quita primeiro as cotas mais antigas.</span>
+      <span class="field-hint">O valor abate primeiro os meses mais antigos.</span>
     </form>` : '';
 
   return `
@@ -616,6 +731,8 @@ function renderMemberCard(m, r) {
       </div>
 
       ${abertoHtml}
+
+      ${balancoHtml}
 
       ${pix ? `
         <div class="pix-box" style="margin-top:12px">
@@ -638,16 +755,17 @@ function renderMemberCard(m, r) {
 }
 
 function renderPagamentosMembro(m) {
-  const pagamentos = (m.pagamentos || []).slice(0, 6);
+  const pagamentos = (m.pagamentos || [])
+    .filter((p) => p.status_pagamento === 'pago' || p.status_pagamento === 'aguardando_auditoria')
+    .slice(0, 8);
   if (!pagamentos.length) {
-    return `<div class="empty">${icon('receipt')}<div>Nenhum lançamento encontrado.</div></div>`;
+    return `<div class="empty">${icon('receipt')}<div>Nenhum pagamento confirmado ainda.</div></div>`;
   }
   return `
     <div class="list">
       ${pagamentos.map((p) => {
         const meta = statusMeta(p.status_pagamento);
-        const iconClass = p.status_pagamento === 'pago' ? 'is-paid'
-          : p.status_pagamento === 'aguardando_auditoria' ? 'is-wait' : '';
+        const iconClass = p.status_pagamento === 'pago' ? 'is-paid' : 'is-wait';
         return `
           <div class="list-row">
             <div class="list-main">
@@ -655,10 +773,10 @@ function renderPagamentosMembro(m) {
                 ${icon(p.status_pagamento === 'pago' ? 'check' : 'receipt')}
               </div>
               <div>
-                <div class="list-title">Cota de ${mesLabel(p.mes)}</div>
+                <div class="list-title">${mesLabel(p.mes)}</div>
                 <span class="list-sub">${p.data_pagamento
                   ? `Confirmado em ${dateBR(p.data_pagamento)}`
-                  : p.status_pagamento === 'pendente' ? 'Em aberto' : 'Do histórico'}</span>
+                  : 'Confirmado no histórico'}</span>
               </div>
             </div>
             <div class="list-right">
@@ -673,15 +791,22 @@ function renderPagamentosMembro(m) {
 function renderAdminDashboard() {
   const r = state.resumo || {};
   const conferencia = state.conferencia || [];
+  const reembolsos = state.reembolsos || [];
+  const reembolsosPendentes = reembolsos.filter((rb) => rb.status === 'aguardando');
   const caixa = state.caixa || {};
   const ativosMes = r.mes_atual?.ativos || {};
+  const pagamentosMes = ativosMes.pagos || 0;
   const telegramOk = Boolean(r.telegram_habilitado);
   const comTelegram = state.membros.filter((m) => m.telegram_id && !m.ex_bolsista).length;
+  const totalParaConferir = conferencia.length + reembolsosPendentes.length;
 
   const adminActions = `
     <div class="admin-actions">
       <button class="btn btn-primary" type="button" data-action="generate">
-        ${icon('calendar')} Gerar cobranças de ${mesLabel(r.mes)}
+        ${icon('calendar')} Gerar cobranças do mês
+      </button>
+      <button class="btn btn-ghost" type="button" data-action="open-reembolso">
+        ${icon('plus')} Pedido de reembolso
       </button>
       <button class="btn btn-ghost" type="button" data-action="open-new-member">
         ${icon('plus')} Nova pessoa
@@ -695,31 +820,33 @@ function renderAdminDashboard() {
     <section class="page-head">
       <div class="page-head-row">
         <div>
-          <span class="eyebrow">${icon('lock')} Painel da gestão</span>
-          <h1>Membros & cobranças</h1>
-          <p class="subtitle">Cotas, conferência e avisos.</p>
+          <h1>Gestão da ITCP</h1>
+          <p class="subtitle">Membros, conferência de pagamentos, reembolsos e livro caixa.</p>
         </div>
-        <span class="badge badge-active">Caixa ativo</span>
       </div>
       ${adminActions}
     </section>
 
     <div class="stat-grid">
       <div class="stat">
-        <span class="stat-label">Ativos</span>
+        <span class="stat-label">Na ITCP</span>
         <span class="stat-value">${r.membros?.ativos || 0}</span>
+        <span class="stat-hint">bolsistas ativos</span>
       </div>
       <div class="stat">
         <span class="stat-label">Ex-bolsistas</span>
         <span class="stat-value">${r.membros?.ex_bolsistas || 0}</span>
+        <span class="stat-hint">no histórico</span>
       </div>
       <div class="stat">
-        <span class="stat-label">Pago no mês</span>
-        <span class="stat-value is-secondary">${brl(ativosMes.valor_pago || 0)}</span>
+        <span class="stat-label">Pagamentos no mês</span>
+        <span class="stat-value is-secondary">${pagamentosMes}</span>
+        <span class="stat-hint">${pagamentosMes === 1 ? '1 pagamento feito este mês' : `${pagamentosMes} pagamentos feitos este mês`} · ${brl(ativosMes.valor_pago || 0)}</span>
       </div>
       <div class="stat">
-        <span class="stat-label">Aguardando conferência</span>
-        <span class="stat-value ${conferencia.length ? 'is-primary' : ''}">${conferencia.length}</span>
+        <span class="stat-label">Para conferir</span>
+        <span class="stat-value ${totalParaConferir ? 'is-primary' : ''}">${totalParaConferir}</span>
+        <span class="stat-hint">${conferencia.length} pagto(s) · ${reembolsosPendentes.length} reembolso(s)</span>
       </div>
     </div>
 
@@ -727,8 +854,8 @@ function renderAdminDashboard() {
       <section class="card">
         <div class="card-header">
           <div>
-            <h2 class="card-title">Cobrança no Telegram</h2>
-            <p class="card-sub">Lembrete para quem tem pendência e Telegram vinculado.</p>
+            <h2 class="card-title">Lembrete no Telegram</h2>
+            <p class="card-sub">Envia aviso para quem está com mês em aberto e Telegram vinculado.</p>
           </div>
           <button class="btn ${telegramOk ? 'btn-primary' : 'btn-ghost'} btn-sm"
                   type="button" data-action="disparar-telegram" ${telegramOk ? '' : 'disabled'}>
@@ -737,7 +864,7 @@ function renderAdminDashboard() {
         </div>
         <p class="field-hint">
           ${telegramOk
-            ? `${comTelegram} membro(s) com Telegram vinculado. Gere as cobranças do mês antes de disparar.`
+            ? `${comTelegram} pessoa(s) com Telegram vinculado.`
             : 'Configure TELEGRAM_BOT_TOKEN no .env para habilitar o disparo.'}
         </p>
       </section>
@@ -746,10 +873,10 @@ function renderAdminDashboard() {
         <div class="card-header">
           <div>
             <h2 class="card-title">Livro caixa</h2>
-            <p class="card-sub">Saldo ${brl(caixa.saldo || 0)} · ${brl(caixa.total_despesas || 0)} em despesas.</p>
+            <p class="card-sub">Saldo ${brl(caixa.saldo || 0)} · ${brl(caixa.total_despesas || 0)} em saídas/reembolsos.</p>
           </div>
           <button class="btn btn-ghost btn-sm" type="button" data-action="open-expense">
-            ${icon('plus')} Despesa
+            ${icon('plus')} Lançar saída
           </button>
         </div>
         ${renderDespesas((caixa.despesas_recentes || []).slice(0, 3))}
@@ -759,8 +886,19 @@ function renderAdminDashboard() {
     <section class="card" style="margin-top:14px">
       <div class="card-header">
         <div>
+          <h2 class="card-title">Pedidos de reembolso (Equipes e GEPAs)</h2>
+          <p class="card-sub">Gastos do cotidiano da ITCP. Ao aprovar, o valor entra automaticamente nas saídas da caixinha.</p>
+        </div>
+        <button class="card-link" type="button" data-action="open-reembolso">${icon('plus')} Novo pedido</button>
+      </div>
+      ${renderReembolsosAdmin(reembolsos)}
+    </section>
+
+    <section class="card" style="margin-top:14px">
+      <div class="card-header">
+        <div>
           <h2 class="card-title">Conferência de pagamentos</h2>
-          <p class="card-sub">Avisos feitos pelo bot ou pela web. Ao confirmar, o valor quita as cotas mais antigas primeiro.</p>
+          <p class="card-sub">Avisos enviados pelo bot ou pelo site. Ao confirmar, o valor abate os meses mais antigos primeiro.</p>
         </div>
         <button class="card-link" type="button" data-action="refresh">${icon('refresh')} Atualizar</button>
       </div>
@@ -770,7 +908,7 @@ function renderAdminDashboard() {
     <section class="card" style="margin-top:14px">
       <div class="card-header">
         <div>
-          <h2 class="card-title">Membros do coletivo</h2>
+          <h2 class="card-title">Pessoas cadastradas</h2>
           <p class="card-sub" id="member-count">${state.membros.length} cadastro(s)</p>
         </div>
         <a class="btn btn-ghost btn-sm" href="/api/admin/membros/ex-bolsistas.csv">
@@ -785,43 +923,98 @@ function renderAdminDashboard() {
 function renderTransparencia() {
   const r = state.resumo || {};
   const ativosMes = r.mes_atual?.ativos || {};
-  const totalMes = (ativosMes.pagos || 0) + (ativosMes.pendentes || 0) + (ativosMes.em_auditoria || 0);
   const confirmadas = ativosMes.pagos || 0;
-  const adesao = pct(confirmadas, totalMes);
 
   return `
     <section class="page-head">
       <div class="page-head-row">
         <div>
-          <h1>O coletivo</h1>
-          <p class="subtitle">Quem faz parte da ITCP. Valores individuais não aparecem aqui.</p>
+          <h1>ITCP</h1>
+          <p class="subtitle">Quem faz parte da ITCP hoje.</p>
         </div>
       </div>
     </section>
 
     <div class="stat-grid stat-grid-2">
       <div class="stat">
-        <span class="stat-label">Bolsistas ativos</span>
+        <span class="stat-label">Pessoas na ITCP</span>
         <span class="stat-value">${r.membros?.ativos || 0}</span>
+        <span class="stat-hint">bolsistas ativos</span>
       </div>
       <div class="stat">
-        <span class="stat-label">Cotas confirmadas no mês</span>
-        <span class="stat-value is-secondary">${confirmadas} de ${totalMes}</span>
-        <span class="stat-hint">${adesao}% do mês</span>
+        <span class="stat-label">Pagamentos no mês</span>
+        <span class="stat-value is-secondary">${confirmadas}</span>
+        <span class="stat-hint">${confirmadas === 1 ? '1 pagamento feito este mês' : `${confirmadas} pagamentos feitos este mês`}</span>
       </div>
-      <!-- TODO: reativar o saldo do livro caixa após conciliação de empréstimos e reembolsos -->
     </div>
 
     <section class="card" style="margin-top:14px">
       <div class="card-header">
         <div>
-          <h2 class="card-title">Quem está ativo no coletivo</h2>
+          <h2 class="card-title">Pessoas ativas na ITCP</h2>
           <p class="card-sub" id="member-count">${state.membros.length} pessoa(s)</p>
         </div>
       </div>
       ${renderToolbar(false)}
       <div id="member-list">${renderMembrosNeutros()}</div>
     </section>`;
+}
+
+function renderReembolsosAdmin(itens) {
+  if (!itens || !itens.length) {
+    return `<div class="empty">${icon('check')}<div>Nenhum pedido de reembolso registrado.</div></div>`;
+  }
+  return `
+    <div class="list">
+      ${itens.map((rb) => {
+        const isPaid = rb.status === 'aprovado';
+        const isRej = rb.status === 'rejeitado';
+        const st = isPaid
+          ? { label: 'Já feito / Pago', cls: 'badge-paid' }
+          : isRej
+            ? { label: 'Recusado', cls: 'badge-ex' }
+            : { label: 'Pendente (não feito)', cls: 'badge-wait' };
+        return `
+          <div class="confer-row">
+            <div class="list-main">
+              <div>
+                <div class="list-title">
+                  <span class="frente-tag" style="margin-right:6px">${esc(rb.frente)}</span>
+                  ${esc(rb.descricao)}
+                </div>
+                <span class="list-sub">
+                  ${esc(rb.data_gasto ? dateBR(rb.data_gasto) : 'sem data')}
+                  ${rb.solicitante_nome ? ` · ${esc(rb.solicitante_nome)}` : ''}
+                  ${rb.ra ? ` (RA ${esc(rb.ra)})` : ''}
+                </span>
+                ${rb.pix_chave ? `<span class="list-sub">Chave Pix: ${esc(rb.pix_chave)}</span>` : ''}
+                ${rb.comprovante ? `<span class="list-sub">Obs./comprovante: ${esc(rb.comprovante)}</span>` : ''}
+                ${rb.nota_gestao ? `<span class="list-sub">Nota da gestão: ${esc(rb.nota_gestao)}</span>` : ''}
+              </div>
+            </div>
+            <div class="member-amount">
+              <span class="value">${brl(rb.valor)}</span>
+              <span class="badge ${st.cls}" style="margin-top:4px">${st.label}</span>
+            </div>
+            <div class="confer-actions">
+              ${!isPaid ? `
+                <button class="btn btn-secondary btn-sm" type="button"
+                        data-action="conferir-reembolso" data-id="${rb.id}" data-decision="1">
+                  ${icon('check')} Marcar pago
+                </button>` : `
+                <button class="btn btn-ghost btn-sm" type="button"
+                        data-action="toggle-reembolso-pendente" data-id="${rb.id}">
+                  Marcar pendente
+                </button>`}
+              ${!isRej ? `
+                <button class="btn btn-danger btn-sm" type="button"
+                        data-action="conferir-reembolso" data-id="${rb.id}" data-decision="0">
+                  ${icon('x')} Recusar
+                </button>` : ''}
+            </div>
+          </div>`;
+      }).join('')}
+    </div>`;
 }
 
 function renderConferencia(itens) {
@@ -838,7 +1031,7 @@ function renderConferencia(itens) {
               <div class="list-title">${esc(item.nome)}</div>
               <span class="list-sub">
                 RA ${esc(item.ra || '—')} ·
-                ${item.tipo === 'valor' ? 'abate as cotas mais antigas' : mesLabel(item.mes)} ·
+                ${item.tipo === 'valor' ? 'abate os meses mais antigos' : mesLabel(item.mes)} ·
                 ${esc(item.data_pagamento ? dateBR(item.data_pagamento) : 'sem data')}
               </span>
               ${item.observacao ? `<span class="list-sub">${esc(item.observacao)}</span>` : ''}
@@ -867,7 +1060,7 @@ function renderToolbar(admin) {
   const chips = admin
     ? [
         ['todos', 'Todos'],
-        ['ativos', 'Ativos'],
+        ['ativos', 'Na ITCP'],
         ['ex_bolsistas', 'Ex-bolsistas'],
       ]
     : [];
@@ -908,7 +1101,7 @@ function membrosFiltrados() {
 function renderMemberRows() {
   const lista = membrosFiltrados();
   if (!lista.length) {
-    return `<div class="empty">${icon('users')}<div>Nenhum membro encontrado com esse filtro.</div></div>`;
+    return `<div class="empty">${icon('users')}<div>Ninguém encontrado com esse filtro.</div></div>`;
   }
   return `<div class="member-list">
     ${lista.map((m) => {
@@ -922,7 +1115,7 @@ function renderMemberRows() {
               <div class="member-name">${esc(m.nome)}</div>
               <div class="member-meta">
                 ${state.admin ? (m.ra ? `<span>RA ${esc(m.ra)}</span>` : '<span>sem RA</span>') : ''}
-                <span>${esc(m.status_vinculo || (isEx ? 'EX-BOLSISTA' : 'ATIVO'))}</span>
+                <span>${isEx ? 'Ex-bolsista' : (m.recem_ingresso ? 'Entrou recentemente' : 'Na ITCP')}</span>
                 ${state.admin ? `<span>TG ${esc(m.telegram_id || '—')}</span>` : ''}
               </div>
             </div>
@@ -930,7 +1123,7 @@ function renderMemberRows() {
           <div class="member-side">
             <div class="member-amount">
               <span class="value">${brl(m.saldo_devedor || 0)}</span>
-              <span class="label">${m.cotas_pendentes || 0} pendente(s)</span>
+              <span class="label">${m.cotas_pendentes || 0} mês(es) em aberto</span>
             </div>
             <span class="badge ${status.cls}">${status.label}</span>
           </div>
@@ -953,7 +1146,7 @@ function renderMemberRows() {
 }
 
 function tagMembro(m) {
-  return m.recem_ingresso ? 'Recém-ingresso(a)' : 'Na ITCP';
+  return m.recem_ingresso ? 'Entrou recentemente' : 'Na ITCP';
 }
 
 function renderMembrosNeutros() {
@@ -1006,17 +1199,24 @@ function renderCaixa() {
       </div>`;
   }).join('');
 
+  const porCategoria = c.despesas_por_categoria || [];
+  const pendentesReembolso = c.reembolsos_pendentes || [];
+
   return `
     <section class="page-head">
       <div class="page-head-row">
         <div>
-          <span class="eyebrow">${icon('wallet')} Transparência ativa</span>
           <h1>Livro caixa</h1>
-          <p class="subtitle">Cotas recebidas e despesas.</p>
+          <p class="subtitle">Reembolsos, despesas e entradas da caixinha da ITCP.</p>
         </div>
-        <button class="icon-btn" type="button" data-action="refresh" aria-label="Atualizar">
-          ${icon('refresh')}
-        </button>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-sm" type="button" data-action="open-reembolso">
+            ${icon('plus')} Pedir reembolso
+          </button>
+          <button class="icon-btn" type="button" data-action="refresh" aria-label="Atualizar">
+            ${icon('refresh')}
+          </button>
+        </div>
       </div>
     </section>
 
@@ -1026,7 +1226,7 @@ function renderCaixa() {
           <span class="stat-label">Saldo do livro caixa</span>
           <div class="money-lg ${c.saldo >= 0 ? 'text-secondary' : 'text-error'}">${brl(c.saldo)}</div>
           <p class="card-sub" style="margin-top:4px">
-            ${brl(c.total_pago)} em cotas · ${brl(c.total_despesas)} em despesas
+            ${brl(c.total_pago)} recebidos · ${brl(c.total_despesas)} em reembolsos e despesas
           </p>
         </div>
         <span class="badge ${c.saldo >= 0 ? 'badge-active' : 'badge-ex'}">
@@ -1035,12 +1235,12 @@ function renderCaixa() {
       </div>
       <div class="grid-2">
         <div class="stat">
-          <span class="stat-label">Entradas em ${mesLabel(c.mes)}</span>
-          <span class="stat-value is-secondary">+ ${brl(c.pago_mes)}</span>
-        </div>
-        <div class="stat">
           <span class="stat-label">Saídas em ${mesLabel(c.mes)}</span>
           <span class="stat-value is-tertiary">- ${brl(c.despesas_mes)}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Entradas em ${mesLabel(c.mes)}</span>
+          <span class="stat-value is-secondary">+ ${brl(c.pago_mes)}</span>
         </div>
       </div>
     </section>
@@ -1048,40 +1248,78 @@ function renderCaixa() {
     <section class="card" style="margin-top:14px">
       <div class="card-header">
         <div>
-          <h2 class="card-title">Arrecadação por mês</h2>
-          <p class="card-sub">Últimos 12 meses.</p>
+          <h2 class="card-title">Reembolsos e despesas da caixinha</h2>
+          <p class="card-sub">Saídas aprovadas para equipes, GEPAs e atividades da ITCP.</p>
         </div>
-        <div class="chart-legend"><span><i class="legend-dot"></i>Arrecadado</span></div>
+        <button class="card-link" type="button" data-action="open-reembolso">
+          ${icon('plus')} Pedir reembolso
+        </button>
       </div>
-      <div class="chart" role="img" aria-label="Gráfico de arrecadação mensal">${barras}</div>
+      ${porCategoria.length ? `
+        <div class="expense-cats" style="margin-bottom:14px">
+          ${porCategoria.map((cat) => `
+            <div class="expense-cat-item">
+              <div class="expense-cat-head">
+                <span class="frente-tag">${esc(cat.categoria)}</span>
+                <span class="expense-cat-count">${cat.quantidade} saída(s)</span>
+              </div>
+              <span class="expense-cat-val">- ${brl(cat.total)}</span>
+            </div>`).join('')}
+        </div>` : ''}
+      ${renderDespesas(c.despesas_recentes)}
+      ${pendentesReembolso.length ? `
+        <div class="pending-block" style="margin-top:12px">
+          <div class="pending-head">
+            <span class="small">Reembolsos pendentes — ainda não feitos (${pendentesReembolso.length})</span>
+          </div>
+          <div class="list">
+            ${pendentesReembolso.map((rb) => `
+              <div class="list-row">
+                <div class="list-main">
+                  <div>
+                    <div class="list-title">
+                      <span class="frente-tag" style="margin-right:6px">${esc(rb.frente)}</span>
+                      ${esc(rb.descricao)}
+                    </div>
+                    <span class="list-sub">${dateBR(rb.data_gasto)}${rb.solicitante_nome ? ` · ${esc(rb.solicitante_nome)}` : ''}</span>
+                  </div>
+                </div>
+                <div class="list-right">
+                  <span class="list-value">${brl(rb.valor)}</span>
+                  <span class="badge badge-wait" style="margin-top:4px">Pendente</span>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>` : ''}
     </section>
 
     <div class="grid-2" style="margin-top:14px">
       <section class="card">
         <div class="card-header">
           <div>
-            <h2 class="card-title">Cotas recebidas</h2>
-            <p class="card-sub">Lançamentos confirmados recentemente.</p>
+            <h2 class="card-title">Arrecadação por mês</h2>
+            <p class="card-sub">Valor recebido no mês em que o pagamento foi registrado.</p>
           </div>
+          <div class="chart-legend"><span><i class="legend-dot"></i>Recebido</span></div>
         </div>
-        ${renderPagamentosRecentes(c.pagamentos_recentes)}
+        <div class="chart" role="img" aria-label="Gráfico de arrecadação mensal">${barras}</div>
       </section>
 
       <section class="card">
         <div class="card-header">
           <div>
-            <h2 class="card-title">Despesas</h2>
-            <p class="card-sub">Saídas registradas pela gestão.</p>
+            <h2 class="card-title">Pagamentos recebidos</h2>
+            <p class="card-sub">Entradas confirmadas recentemente.</p>
           </div>
         </div>
-        ${renderDespesas(c.despesas_recentes)}
+        ${renderPagamentosRecentes(c.pagamentos_recentes)}
       </section>
     </div>`;
 }
 
 function renderPagamentosRecentes(itens) {
   if (!itens?.length) {
-    return `<div class="empty">${icon('receipt')}<div>Nenhuma cota recebida ainda.</div></div>`;
+    return `<div class="empty">${icon('receipt')}<div>Nenhum pagamento recebido ainda.</div></div>`;
   }
   return `<div class="list">
     ${itens.map((p) => `
@@ -1089,14 +1327,14 @@ function renderPagamentosRecentes(itens) {
         <div class="list-main">
           <div class="list-icon is-paid">${icon('check')}</div>
           <div>
-            <div class="list-title">Cota recebida</div>
+            <div class="list-title">Pagamento recebido</div>
             <span class="list-sub">
-              ${mesLabel(p.mes)} · ${p.data_pagamento ? dateBR(p.data_pagamento) : 'histórico'}
+              ${p.data_pagamento ? `Pago em ${dateBR(p.data_pagamento)} (ref. ${mesShort(p.mes)})` : `${mesLabel(p.mes)} · histórico`}
             </span>
           </div>
         </div>
         <div class="list-right">
-          <span class="list-value">${brl(p.valor_pago)}</span>
+          <span class="list-value text-secondary">+ ${brl(p.valor_pago)}</span>
         </div>
       </div>`).join('')}
   </div>`;
@@ -1104,7 +1342,7 @@ function renderPagamentosRecentes(itens) {
 
 function renderDespesas(itens) {
   if (!itens?.length) {
-    return `<div class="empty">${icon('wallet')}<div>Nenhuma despesa lançada.</div></div>`;
+    return `<div class="empty">${icon('wallet')}<div>Nenhum reembolso ou despesa registrado ainda.</div></div>`;
   }
   return `<div class="list">
     ${itens.map((d) => `
@@ -1112,8 +1350,11 @@ function renderDespesas(itens) {
         <div class="list-main">
           <div class="list-icon is-expense">${icon('receipt')}</div>
           <div>
-            <div class="list-title">${esc(d.descricao)}</div>
-            <span class="list-sub">${dateBR(d.data)}${d.categoria ? ` · ${esc(d.categoria)}` : ''}</span>
+            <div class="list-title">
+              ${d.categoria ? `<span class="frente-tag" style="margin-right:6px">${esc(d.categoria)}</span>` : ''}
+              ${esc(d.descricao)}
+            </div>
+            <span class="list-sub">${dateBR(d.data)}${d.comprovante ? ` · ${esc(d.comprovante)}` : ''}</span>
           </div>
         </div>
         <div class="list-right">
@@ -1132,7 +1373,7 @@ function renderAssistente() {
   if (!state.chat.length) {
     state.chat.push({
       role: 'bot',
-      text: 'Oi! Sou o assistente da caixinha. Posso consultar suas pendências, a adesão do mês, o saldo do caixa, Pix e a próxima cobrança.',
+      text: 'Oi! Sou o assistente da caixinha da ITCP. Posso consultar suas pendências, os pagamentos do mês, o saldo do caixa e a chave Pix.',
       time: new Date(),
     });
   }
@@ -1140,9 +1381,8 @@ function renderAssistente() {
     <section class="page-head">
       <div class="page-head-row">
         <div>
-          <span class="eyebrow">${icon('chat')} Apoio à organização</span>
-          <h1>Assistente da caixinha</h1>
-          <p class="subtitle">Tire dúvidas sobre a caixinha.</p>
+          <h1>Assistente</h1>
+          <p class="subtitle">Tire dúvidas sobre a caixinha da ITCP.</p>
         </div>
       </div>
     </section>
@@ -1152,7 +1392,7 @@ function renderAssistente() {
         ${state.chat.map(renderMensagem).join('')}
       </div>
       <div class="suggestions" id="chat-suggestions">
-        ${['Quanto eu devo?', 'Como está a adesão do mês?', 'Qual o saldo?', 'Como pagar?', 'Próxima cobrança']
+        ${['Quanto eu devo?', 'Pagamentos deste mês', 'Qual o saldo?', 'Como pagar?', 'Próxima cobrança']
           .map((texto) => `<button class="suggestion" type="button" data-action="suggestion"
             data-text="${esc(texto)}">${esc(texto)}</button>`).join('')}
       </div>
@@ -1181,12 +1421,90 @@ function renderMensagem(msg) {
     </div>`;
 }
 
+function renderSobre() {
+  return `
+    <section class="page-head">
+      <div class="page-head-row">
+        <div>
+          <h1>Sobre o grana.noiz</h1>
+          <p class="subtitle">Transparência e autogestão financeira para coletivos, movimentos e organizações populares.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">O que é o projeto</h2>
+          <p class="card-sub">Ferramenta aberta construída a partir da experiência da caixinha da ITCP/Unicamp.</p>
+        </div>
+      </div>
+      <div class="about-prose">
+        <p>
+          O <strong>grana.noiz</strong> é uma plataforma leve de gestão e transparência financeira pensada para o cotidiano de coletivos autônomos, incubadoras populares, cooperativas e movimentos sociais.
+        </p>
+        <p>
+          O objetivo é organizar contribuições mensais, pedidos de reembolso de equipes e frentes de trabalho, conciliação simples e prestação de contas do livro caixa — sem expor dívidas individuais publicamente e sem depender de planilhas confusas ou sistemas empresariais fechados.
+        </p>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:14px">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Software Livre e Licença AGPL-3.0</h2>
+          <p class="card-sub">Autonomia tecnológica, código auditável e sem aprisionamento proprietário.</p>
+        </div>
+        <span class="frente-tag">GNU AGPLv3</span>
+      </div>
+      <div class="about-prose">
+        <p>
+          Este projeto é <strong>software livre e de código aberto</strong>, distribuído sob a licença <strong>GNU Affero General Public License v3.0 (AGPL-3.0)</strong>. Na prática, isso garante quatro liberdades fundamentais para qualquer pessoa ou coletivo:
+        </p>
+        <ul class="about-list">
+          <li><strong>Usar livremente:</strong> qualquer coletivo, grupo ou organização popular pode rodar o sistema para sua própria caixinha, sem custos de licença ou restrições.</li>
+          <li><strong>Estudar e auditar:</strong> todo o código-fonte é público, permitindo verificar como os cálculos, os abatimentos e os dados são tratados.</li>
+          <li><strong>Adaptar à realidade local:</strong> você pode modificar textos, regras, frentes, valores e fluxos para as necessidades da sua organização.</li>
+          <li><strong>Compartilhar melhorias:</strong> a licença AGPL-3.0 protege o bem comum — melhorias e versões disponibilizadas em rede permanecem livres para toda a comunidade.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:14px">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Repositório oficial e como contribuir</h2>
+          <p class="card-sub">Código aberto no GitHub para auditar, sugerir melhorias ou enviar código.</p>
+        </div>
+      </div>
+      <div class="about-prose">
+        <p>
+          Toda pessoa interessada é bem-vinda para inspecionar o código, abrir <em>issues</em> relatando problemas ou ideias, melhorar a documentação e enviar <em>pull requests</em>.
+        </p>
+        <div class="pix-box" style="margin-top:4px">
+          <div class="pix-box-main">
+            ${icon('link')}
+            <div style="min-width:0">
+              <span class="pix-label">Repositório no GitHub</span>
+              <span class="pix-value">https://github.com/joao-asp/grana.noiz</span>
+            </div>
+          </div>
+          <a class="btn btn-primary btn-sm" href="https://github.com/joao-asp/grana.noiz"
+             target="_blank" rel="noopener noreferrer">
+            Acessar GitHub
+          </a>
+        </div>
+      </div>
+    </section>`;
+}
+
 function renderView() {
   if (state.loading) return renderLoading();
   switch (state.route) {
     case 'transparencia': return renderTransparencia();
     case 'caixa': return renderCaixa();
     case 'assistente': return renderAssistente();
+    case 'sobre': return renderSobre();
     case 'inicio':
     default: return renderInicio();
   }
@@ -1232,12 +1550,17 @@ async function loadConferencia() {
   state.conferencia = data.conferencia || [];
 }
 
+async function loadReembolsos() {
+  const data = await api('/api/admin/reembolsos');
+  state.reembolsos = data.reembolsos || [];
+}
+
 async function loadCaixa() {
   state.caixa = await api('/api/caixa');
 }
 
 async function loadAdminData() {
-  await Promise.all([fetchResumo(), loadMembros(), loadConferencia(), loadCaixa()]);
+  await Promise.all([fetchResumo(), loadMembros(), loadConferencia(), loadReembolsos(), loadCaixa()]);
 }
 
 async function showRoute(route, opcoes = {}) {
@@ -1324,6 +1647,7 @@ async function logoutAdmin() {
   state.adminUser = '';
   state.membros = [];
   state.conferencia = [];
+  state.reembolsos = [];
   state.caixa = null;
   state.resumo = null;
   state.filters = { tipo: 'todos', q: '', semTelegram: false };
@@ -1393,7 +1717,7 @@ function closeModal() {
 
 function openNovoMembro() {
   openModal({
-    title: 'Nova pessoa no coletivo',
+    title: 'Nova pessoa na ITCP',
     subtitle: 'Cadastro manual de membro ativo ou ex-bolsista.',
     submitLabel: 'Cadastrar',
     body: `
@@ -1498,9 +1822,9 @@ function openGerarCobrancas() {
   const mes = state.resumo?.mes || mesAtualISO();
   openModal({
     title: `Gerar cobranças de ${mesLabel(mes)}`,
-    subtitle: 'Somente bolsistas ativos recebem novas cobranças.',
+    subtitle: 'Somente bolsistas ativos na ITCP recebem novas cobranças.',
     submitLabel: 'Gerar cobranças',
-    body: `<p class="small">As cotas pendentes de ${mesLabel(mes)} serão criadas para todos os membros ativos. Ex-bolsistas ficam de fora.</p>`,
+    body: `<p class="small">Os lançamentos pendentes de ${mesLabel(mes)} serão criados para todas as pessoas ativas. Ex-bolsistas ficam de fora.</p>`,
     onSubmit: async () => {
       const resultado = await api('/api/admin/cobrancas', {
         method: 'POST',
@@ -1528,9 +1852,7 @@ function openDispararTelegram() {
         pendência e Telegram vinculado.
       </p>
       <p class="field-hint">
-        Quem está em dia não recebe. A mensagem é humana, inclui a cota do mês
-        e convida a conversar com a gestão. Nada é marcado como pago
-        automaticamente.
+        Quem está em dia não recebe. Nada é marcado como pago automaticamente.
       </p>`,
     onSubmit: async () => {
       const resultado = await api('/api/admin/telegram/cobrancas', {
@@ -1558,7 +1880,7 @@ function openConferencia(item, aprovado) {
     danger: !aprovado,
     body: `
       ${aprovado && item.tipo === 'valor' ? `
-        <p class="small">O valor será abatido do saldo devedor, quitando as cotas mais antigas primeiro.</p>` : ''}
+        <p class="small">O valor será abatido do saldo em aberto, começando pelos meses mais antigos.</p>` : ''}
       <div class="field">
         <label for="confer-obs">Observação (opcional)</label>
         <textarea id="confer-obs" name="observacao"
@@ -1587,18 +1909,158 @@ function openConferencia(item, aprovado) {
   });
 }
 
+function openPedidoReembolso() {
+  const nomeMembro = state.membro?.nome || '';
+  openModal({
+    title: 'Pedir reembolso',
+    subtitle: 'Gastos do cotidiano da ITCP (uber/transporte, lanche, materiais de oficina etc.).',
+    submitLabel: 'Salvar reembolso',
+    body: `
+      <div class="field">
+        <label>Frente (Equipe ou GEPA)</label>
+        ${renderFrentePickerMarkup('frente', 'Tainã')}
+      </div>
+
+      <div class="form-grid two">
+        <div class="field">
+          <label for="rb-solicitante">Seu nome</label>
+          <input id="rb-solicitante" name="solicitante" maxlength="100" autocomplete="name"
+                 value="${esc(nomeMembro)}" placeholder="Quem está pedindo" required>
+        </div>
+        <div class="field">
+          <label for="rb-pix">Chave Pix para receber</label>
+          <input id="rb-pix" name="pix_chave" maxlength="140" autocomplete="off"
+                 placeholder="CPF, e-mail, celular ou aleatória" required>
+        </div>
+      </div>
+
+      <div class="form-grid two">
+        <div class="field">
+          <label for="rb-valor">Valor (R$)</label>
+          <input id="rb-valor" name="valor" inputmode="decimal" autocomplete="off"
+                 placeholder="Ex.: 28,50" required>
+        </div>
+        <div class="field">
+          <label for="rb-data">Data do gasto</label>
+          <input id="rb-data" name="data" type="date" value="${hojeISO()}" max="${hojeISO()}" required>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="rb-desc">Descrição curta</label>
+        <input id="rb-desc" name="descricao" required maxlength="140" autocomplete="off"
+               placeholder="Ex.: uber para atividade, lanche da reunião">
+      </div>
+
+      <div class="field">
+        <label>Status do reembolso</label>
+        ${renderStatusReembolsoPickerMarkup(false)}
+      </div>
+
+      <div class="field">
+        <label for="rb-comp">Observação ou comprovante (opcional)</label>
+        <input id="rb-comp" name="comprovante" maxlength="300" autocomplete="off"
+               placeholder="Link do comprovante ou observação complementar">
+      </div>`,
+    onSubmit: async (dados) => {
+      const solicitante = String(dados.solicitante || '').trim();
+      if (!solicitante) {
+        throw new Error('Informe seu nome.');
+      }
+      const pixChave = String(dados.pix_chave || '').trim();
+      if (!pixChave) {
+        throw new Error('Informe a chave Pix para o reembolso.');
+      }
+      const valor = parseValor(dados.valor);
+      if (!Number.isFinite(valor) || valor <= 0) {
+        throw new Error('Informe um valor válido maior que zero.');
+      }
+      const jaPago = dados.ja_pago === '1';
+      const resultado = await api('/api/reembolsos', {
+        method: 'POST',
+        body: {
+          ra: state.ra || null,
+          solicitante,
+          pix_chave: pixChave,
+          frente: dados.frente,
+          valor,
+          data: dados.data || hojeISO(),
+          descricao: dados.descricao,
+          comprovante: dados.comprovante || null,
+          ja_pago: jaPago,
+        },
+      });
+      if (resultado.membro) state.membro = resultado.membro;
+      toast(resultado.mensagem || 'Reembolso registrado.');
+      await refreshData();
+    },
+  });
+}
+
+function openConferenciaReembolso(item, aprovado) {
+  openModal({
+    title: aprovado ? 'Confirmar pagamento de reembolso' : 'Recusar pedido de reembolso',
+    subtitle: `${item.frente} · ${brl(item.valor)} · ${item.descricao}`,
+    submitLabel: aprovado ? 'Marcar como pago' : 'Recusar',
+    danger: !aprovado,
+    body: `
+      ${item.pix_chave ? `
+        <div class="pix-box">
+          <div class="pix-box-main">
+            ${icon('copy')}
+            <div style="min-width:0">
+              <span class="pix-label">Chave Pix de ${esc(item.solicitante_nome || 'solicitante')}</span>
+              <span class="pix-value">${esc(item.pix_chave)}</span>
+            </div>
+          </div>
+        </div>` : ''}
+      ${aprovado ? `
+        <p class="small">O reembolso será marcado como feito/pago e entrará nas saídas e despesas do livro caixa (${esc(item.frente)}).</p>` : ''}
+      <div class="field">
+        <label for="rb-nota">Observação da gestão (opcional)</label>
+        <textarea id="rb-nota" name="observacao"
+          placeholder="${aprovado ? 'Ex.: pago via Pix em 18/11' : 'Ex.: comprovante ausente'}"></textarea>
+      </div>`,
+    onSubmit: async (dados) => {
+      await api(`/api/admin/reembolsos/${item.id}`, {
+        method: 'POST',
+        body: { aprovar: aprovado, observacao: dados.observacao || null },
+      });
+      toast(
+        aprovado
+          ? `Reembolso de ${brl(item.valor)} (${item.frente}) marcado como pago.`
+          : 'Pedido de reembolso recusado.',
+        aprovado ? 'success' : 'info',
+      );
+      await refreshData();
+    },
+  });
+}
+
+async function marcarReembolsoPendente(reembolsoId) {
+  try {
+    await api(`/api/admin/reembolsos/${reembolsoId}`, {
+      method: 'POST',
+      body: { status: 'aguardando' },
+    });
+    toast('Reembolso marcado como pendente (ainda não feito).', 'info');
+    await refreshData();
+  } catch (error) {
+    toast(error.message || 'Não foi possível alterar o status.', 'error');
+  }
+}
+
 function openNovaDespesa() {
   openModal({
-    title: 'Nova despesa',
-    subtitle: 'Lançamento no livro caixa do coletivo.',
-    submitLabel: 'Lançar despesa',
+    title: 'Nova saída / despesa',
+    subtitle: 'Lançamento direto no livro caixa da ITCP.',
+    submitLabel: 'Lançar saída',
     body: `
+      <div class="field">
+        <label>Equipe ou GEPA</label>
+        ${renderFrentePickerMarkup('categoria', 'Tainã')}
+      </div>
       <div class="form-grid two">
-        <div class="field" style="grid-column:1/-1">
-          <label for="despesa-desc">Descrição</label>
-          <input id="despesa-desc" name="descricao" required maxlength="140"
-                 placeholder="Ex.: Café e filtros para oficina">
-        </div>
         <div class="field">
           <label for="despesa-valor">Valor (R$)</label>
           <input id="despesa-valor" name="valor" type="number" min="0.01" step="0.01" required>
@@ -1607,13 +2069,13 @@ function openNovaDespesa() {
           <label for="despesa-data">Data</label>
           <input id="despesa-data" name="data" type="date" value="${hojeISO()}" required>
         </div>
-        <div class="field">
-          <label for="despesa-categoria">Categoria</label>
-          <input id="despesa-categoria" name="categoria" maxlength="60"
-                 placeholder="alimentação, materiais…">
+        <div class="field" style="grid-column:1/-1">
+          <label for="despesa-desc">Descrição curta</label>
+          <input id="despesa-desc" name="descricao" required maxlength="140"
+                 placeholder="Ex.: uber para atividade, lanche da reunião">
         </div>
-        <div class="field">
-          <label for="despesa-comprovante">Comprovante (opcional)</label>
+        <div class="field" style="grid-column:1/-1">
+          <label for="despesa-comprovante">Observação ou comprovante (opcional)</label>
           <input id="despesa-comprovante" name="comprovante" maxlength="255"
                  placeholder="Link ou referência">
         </div>
@@ -1629,7 +2091,7 @@ function openNovaDespesa() {
           comprovante: dados.comprovante || null,
         },
       });
-      toast('Despesa lançada no livro caixa.');
+      toast('Saída lançada no livro caixa.');
       await refreshData();
     },
   });
@@ -1675,7 +2137,7 @@ async function openDetalheMembro(id) {
           <span class="stat-value is-secondary">${brl(m.total_pago || 0)}</span>
         </div>
         <div class="stat">
-          <span class="stat-label">Cotas pagas</span>
+          <span class="stat-label">Meses pagos</span>
           <span class="stat-value">${m.cotas_pagas || 0}</span>
         </div>
         <div class="stat">
@@ -1837,6 +2299,62 @@ async function handleAction(element) {
         ));
         if (item) openConferencia(item, element.dataset.decision === '1');
       }
+      break;
+    case 'conferir-reembolso':
+      {
+        const item = state.reembolsos.find((rb) => Number(rb.id) === Number(element.dataset.id));
+        if (item) openConferenciaReembolso(item, element.dataset.decision === '1');
+      }
+      break;
+    case 'toggle-reembolso-pendente':
+      await marcarReembolsoPendente(Number(element.dataset.id));
+      break;
+    case 'select-frente-group':
+      {
+        const picker = element.closest('[data-frente-picker]');
+        if (!picker) break;
+        const group = element.dataset.group;
+        $$('[data-action="select-frente-group"]', picker).forEach((btn) => {
+          btn.classList.toggle('is-active', btn.dataset.group === group);
+        });
+        $$('[data-frente-list]', picker).forEach((list) => {
+          const ativo = list.dataset.frenteList === group;
+          list.classList.toggle('hidden', !ativo);
+          if (ativo) {
+            const selectedChip = $('.frente-chip.is-active', list) || $('.frente-chip', list);
+            if (selectedChip) {
+              $$('.frente-chip', picker).forEach((c) => c.classList.remove('is-active'));
+              selectedChip.classList.add('is-active');
+              const input = $('[data-frente-input]', picker);
+              if (input) input.value = selectedChip.dataset.frente;
+            }
+          }
+        });
+      }
+      break;
+    case 'select-frente-item':
+      {
+        const picker = element.closest('[data-frente-picker]');
+        if (!picker) break;
+        $$('.frente-chip', picker).forEach((c) => c.classList.toggle('is-active', c === element));
+        const input = $('[data-frente-input]', picker);
+        if (input) input.value = element.dataset.frente || '';
+      }
+      break;
+    case 'select-reembolso-status':
+      {
+        const picker = element.closest('[data-status-picker]');
+        if (!picker) break;
+        const paid = element.dataset.paid === '1' ? '1' : '0';
+        $$('[data-action="select-reembolso-status"]', picker).forEach((btn) => {
+          btn.classList.toggle('is-active', btn.dataset.paid === paid);
+        });
+        const input = $('[data-status-input]', picker);
+        if (input) input.value = paid;
+      }
+      break;
+    case 'open-reembolso':
+      openPedidoReembolso();
       break;
     case 'open-expense':
       openNovaDespesa();
