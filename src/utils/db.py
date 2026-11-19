@@ -13,7 +13,13 @@ membros:
 pagamentos:
     id, membro_id, mes, valor_pago, quitado, data_pagamento,
     status_pagamento ('pendente' | 'aguardando_auditoria' | 'pago'),
-    observacoes
+    observacoes, valor_parcial
+
+solicitacoes_pagamento:
+    Avisos de pagamento por valor (sem escolher mês). Quando a gestão
+    confirma, o valor abate o saldo devedor em ordem FIFO (cota mais antiga
+    primeiro). ``valor_parcial`` guarda o que já foi abatido de uma cota que
+    ainda está pendente (``valor_pago`` passa a ser o que falta).
 
 Regras de compatibilidade:
     * ``quitado`` continua existindo e vale 1 somente quando
@@ -21,6 +27,8 @@ Regras de compatibilidade:
     * ``valor_pago`` guarda o valor da cota/cobrança daquele mês. Para
       lançamentos pendentes importados com valor 0, normalizamos para o
       valor da cota (R$ 5,00), pois as rotinas de dívida usam essa coluna.
+    * O valor interno ``aguardando_auditoria`` é mantido por compatibilidade
+      de dados; na interface chama-se "aguardando conferência".
 """
 
 from __future__ import annotations
@@ -183,6 +191,24 @@ CREATE TABLE IF NOT EXISTS despesas (
 """
 
 
+_DDL_SOLICITACOES = """
+CREATE TABLE IF NOT EXISTS solicitacoes_pagamento (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    membro_id INTEGER NOT NULL,
+    valor REAL NOT NULL CHECK (valor > 0),
+    data_pagamento TEXT NOT NULL,
+    observacao TEXT,
+    status TEXT NOT NULL DEFAULT 'aguardando'
+        CHECK (status IN ('aguardando', 'confirmado', 'rejeitado')),
+    origem TEXT NOT NULL DEFAULT 'web',
+    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolvido_em TEXT,
+    nota_gestao TEXT,
+    FOREIGN KEY (membro_id) REFERENCES membros (id) ON DELETE CASCADE
+)
+"""
+
+
 def _criar_tabelas(conn: sqlite3.Connection) -> None:
     conn.execute(_DDL_MEMBROS)
     conn.execute(_DDL_PAGAMENTOS)
@@ -231,6 +257,12 @@ def _criar_indices(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_despesas_data ON despesas (data)"
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_solicitacoes_status
+        ON solicitacoes_pagamento (status, membro_id)
+        """
     )
 
 
@@ -378,6 +410,15 @@ def _migrar_schema(conn: sqlite3.Connection) -> None:
 
     # A tabela de despesas é aditiva e pode ser criada sem rebuild.
     conn.execute(_DDL_DESPESAS)
+    conn.execute(_DDL_SOLICITACOES)
+    # Abatimento parcial (FIFO por valor): quanto de uma cota ainda pendente
+    # já foi pago. ``valor_pago`` continua sendo o que falta pagar enquanto a
+    # cota estiver pendente, então nenhuma consulta de dívida precisa mudar.
+    if "valor_parcial" not in _columns(conn, "pagamentos"):
+        conn.execute(
+            "ALTER TABLE pagamentos "
+            "ADD COLUMN valor_parcial REAL NOT NULL DEFAULT 0"
+        )
     _criar_indices(conn)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -1154,6 +1195,265 @@ def aprovar_pagamento(
         conn.close()
 
 
+def _centavos(valor: Any) -> int:
+    """Converte reais em centavos inteiros (evita erro de ponto flutuante)."""
+    return int(round(float(valor) * 100))
+
+
+def _reais(centavos: int) -> float:
+    return round(centavos / 100, 2)
+
+
+def _aplicar_abatimento_fifo(
+    conn: sqlite3.Connection,
+    membro_id: int,
+    valor: float,
+    data_pagamento: str,
+    nota: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Abate ``valor`` do saldo devedor do membro, quitando as cotas pendentes
+    mais antigas primeiro. Deve rodar dentro de uma transação aberta.
+
+    Se o valor não cobre a última cota, ela continua pendente apenas com o
+    que falta. Valor acima do total em aberto vira ``excedente`` (não é
+    aplicado).
+    """
+    restante = _centavos(valor)
+    quitadas: List[str] = []
+    parcial: Optional[Dict[str, Any]] = None
+    aplicado = 0
+
+    linhas = conn.execute(
+        """
+        SELECT id, mes, valor_pago, valor_parcial
+        FROM pagamentos
+        WHERE membro_id = ? AND status_pagamento = 'pendente' AND quitado = 0
+        ORDER BY mes, id
+        """,
+        (membro_id,),
+    ).fetchall()
+
+    for linha in linhas:
+        if restante <= 0:
+            break
+        aberto = _centavos(
+            linha["valor_pago"]
+            if float(linha["valor_pago"] or 0) > 0
+            else config.VALOR_CONTRIBUICAO
+        )
+        if aberto <= 0:
+            continue
+
+        trecho = f"Abatimento de {_reais(min(restante, aberto)):.2f} em {data_pagamento}"
+        if nota:
+            trecho += f" ({nota})"
+
+        if restante >= aberto:
+            conn.execute(
+                """
+                UPDATE pagamentos
+                SET status_pagamento = 'pago', quitado = 1,
+                    valor_pago = ?, data_pagamento = ?,
+                    observacoes = CASE
+                        WHEN observacoes IS NULL OR TRIM(observacoes) = ''
+                        THEN ? ELSE observacoes || ' | ' || ? END
+                WHERE id = ?
+                """,
+                (_reais(aberto), data_pagamento, trecho, trecho, linha["id"]),
+            )
+            quitadas.append(linha["mes"])
+            restante -= aberto
+            aplicado += aberto
+        else:
+            conn.execute(
+                """
+                UPDATE pagamentos
+                SET valor_pago = ?, valor_parcial = valor_parcial + ?,
+                    observacoes = CASE
+                        WHEN observacoes IS NULL OR TRIM(observacoes) = ''
+                        THEN ? ELSE observacoes || ' | ' || ? END
+                WHERE id = ?
+                """,
+                (_reais(aberto - restante), _reais(restante),
+                 trecho, trecho, linha["id"]),
+            )
+            parcial = {
+                "mes": linha["mes"],
+                "abatido": _reais(restante),
+                "restante": _reais(aberto - restante),
+            }
+            aplicado += restante
+            restante = 0
+
+    return {
+        "aplicado": _reais(aplicado),
+        "excedente": _reais(restante),
+        "meses_quitados": quitadas,
+        "parcial": parcial,
+    }
+
+
+def _saldo_em_aberto_centavos(conn: sqlite3.Connection, membro_id: int) -> int:
+    row = conn.execute(
+        """
+        SELECT COALESCE(SUM(CASE WHEN valor_pago > 0
+                                 THEN valor_pago ELSE ? END), 0) AS total
+        FROM pagamentos
+        WHERE membro_id = ? AND status_pagamento = 'pendente' AND quitado = 0
+        """,
+        (config.VALOR_CONTRIBUICAO, membro_id),
+    ).fetchone()
+    return _centavos(row["total"])
+
+
+def registrar_solicitacao_valor(
+    membro_id: int,
+    valor: Any,
+    data_pagamento: Optional[str] = None,
+    observacao: Optional[str] = None,
+    origem: str = "web",
+) -> Tuple[bool, str, Optional[int]]:
+    """
+    Registra o aviso de pagamento por valor, sem escolher meses.
+
+    O aviso fica ``aguardando`` conferência; o abatimento FIFO só acontece
+    quando a gestão confirma (``resolver_solicitacao``).
+
+    Retorna ``(ok, motivo, id)``. Motivos: ``ok``, ``nao_cadastrado``,
+    ``valor_invalido``, ``data_invalida``, ``sem_pendencia``,
+    ``valor_acima``, ``erro_banco``.
+    """
+    try:
+        centavos = _centavos(valor)
+    except (TypeError, ValueError):
+        return False, "valor_invalido", None
+    if centavos <= 0:
+        return False, "valor_invalido", None
+
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    data = (data_pagamento or hoje).strip()
+    try:
+        data_dt = datetime.strptime(data, "%Y-%m-%d")
+    except ValueError:
+        return False, "data_invalida", None
+    if data > hoje:
+        return False, "data_invalida", None
+    data = data_dt.strftime("%Y-%m-%d")
+
+    obs = (observacao or "").strip()[:500] or None
+    try:
+        conn = _connect()
+        try:
+            with conn:
+                if conn.execute(
+                    "SELECT 1 FROM membros WHERE id = ?", (membro_id,)
+                ).fetchone() is None:
+                    return False, "nao_cadastrado", None
+
+                aberto = _saldo_em_aberto_centavos(conn, membro_id)
+                if aberto <= 0:
+                    return False, "sem_pendencia", None
+                if centavos > aberto:
+                    return False, "valor_acima", None
+
+                cursor = conn.execute(
+                    """
+                    INSERT INTO solicitacoes_pagamento
+                        (membro_id, valor, data_pagamento, observacao, origem)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (membro_id, _reais(centavos), data, obs, origem),
+                )
+                return True, "ok", int(cursor.lastrowid)
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        logger.error("Erro ao registrar aviso de pagamento %s: %s",
+                     membro_id, exc)
+        return False, "erro_banco", None
+
+
+def listar_solicitacoes_valor_aguardando() -> List[Dict[str, Any]]:
+    """Avisos de pagamento por valor que aguardam conferência."""
+    conn = _connect()
+    try:
+        return [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT s.id, s.membro_id, m.nome, m.ra, s.valor,
+                       s.data_pagamento, s.observacao, s.origem, s.criado_em
+                FROM solicitacoes_pagamento s
+                JOIN membros m ON m.id = s.membro_id
+                WHERE s.status = 'aguardando'
+                ORDER BY s.data_pagamento, s.id
+                """
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+
+
+def resolver_solicitacao_valor(
+    solicitacao_id: int,
+    aprovado: bool = True,
+    observacao: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Confirma (abatimento FIFO) ou rejeita um aviso de pagamento por valor.
+
+    Retorna ``None`` se o aviso não existe ou já foi resolvido; caso
+    contrário, um resumo do que foi aplicado.
+    """
+    agora = datetime.now().isoformat(timespec="seconds")
+    nota = (observacao or "").strip() or None
+    conn = _connect()
+    try:
+        with conn:
+            sol = conn.execute(
+                """
+                SELECT * FROM solicitacoes_pagamento
+                WHERE id = ? AND status = 'aguardando'
+                """,
+                (solicitacao_id,),
+            ).fetchone()
+            if sol is None:
+                return None
+
+            if not aprovado:
+                conn.execute(
+                    """
+                    UPDATE solicitacoes_pagamento
+                    SET status = 'rejeitado', resolvido_em = ?, nota_gestao = ?
+                    WHERE id = ?
+                    """,
+                    (agora, nota, solicitacao_id),
+                )
+                return {"aprovado": False, "aplicado": 0.0, "excedente": 0.0,
+                        "meses_quitados": [], "parcial": None}
+
+            resultado = _aplicar_abatimento_fifo(
+                conn,
+                int(sol["membro_id"]),
+                float(sol["valor"]),
+                sol["data_pagamento"],
+                sol["observacao"],
+            )
+            conn.execute(
+                """
+                UPDATE solicitacoes_pagamento
+                SET status = 'confirmado', resolvido_em = ?, nota_gestao = ?
+                WHERE id = ?
+                """,
+                (agora, nota, solicitacao_id),
+            )
+            resultado["aprovado"] = True
+            return resultado
+    finally:
+        conn.close()
+
+
 def buscar_dividas_por_membro_id(
     membro_id: int, incluir_em_auditoria: bool = False
 ) -> List[Tuple[str, float]]:
@@ -1307,7 +1607,9 @@ def _resumo_por_categoria(
                SUM(CASE WHEN p.status_pagamento = 'pago' THEN 1 ELSE 0 END) AS pagos,
                SUM(CASE WHEN p.status_pagamento = 'pendente' THEN 1 ELSE 0 END) AS pendentes,
                SUM(CASE WHEN p.status_pagamento = 'aguardando_auditoria' THEN 1 ELSE 0 END) AS em_auditoria,
-               SUM(CASE WHEN p.status_pagamento = 'pago' THEN p.valor_pago ELSE 0 END) AS valor_pago,
+               SUM(CASE WHEN p.status_pagamento = 'pago'
+                        THEN p.valor_pago ELSE 0 END
+                   + p.valor_parcial) AS valor_pago,
                SUM(CASE WHEN p.status_pagamento <> 'pago'
                         THEN (CASE WHEN p.valor_pago > 0 THEN p.valor_pago ELSE ? END)
                         ELSE 0 END) AS saldo_devedor
@@ -1424,6 +1726,19 @@ def _ultimos_meses(quantidade: int = 12) -> List[str]:
     return meses
 
 
+def _recem_ingresso(data_inicio: Optional[str], meses: int = 2) -> bool:
+    """True se a pessoa entrou há até ``meses`` meses (contando o mês atual)."""
+    if not data_inicio:
+        return False
+    try:
+        inicio = datetime.strptime(str(data_inicio)[:7], "%Y-%m")
+    except ValueError:
+        return False
+    hoje = datetime.now()
+    diferenca = (hoje.year * 12 + hoje.month) - (inicio.year * 12 + inicio.month)
+    return 0 <= diferenca <= meses
+
+
 def listar_membros_web(
     tipo: str = "todos",
     busca: Optional[str] = None,
@@ -1489,6 +1804,9 @@ def listar_membros_web(
         item["total_pago"] = float(item["total_pago"] or 0)
         item["saldo_devedor"] = float(item["saldo_devedor"] or 0)
         item["status_mes_atual"] = item["status_mes_atual"] or "sem_cobranca"
+        item["recem_ingresso"] = (
+            not item["ex_bolsista"] and _recem_ingresso(item.get("data_inicio"))
+        )
         if termo and termo not in normalizar_nome(item["nome"]):
             if not (termo_ra and termo_ra in (item["ra"] or "")):
                 continue
@@ -1532,6 +1850,30 @@ def obter_detalhe_membro_web(membro_id: int) -> Optional[Dict[str, Any]]:
 
     detalhe = dict(base)
     detalhe["pagamentos"] = pagamentos
+    detalhe["meses_em_aberto"] = sorted(
+        p["mes"] for p in pagamentos if p["status_pagamento"] == STATUS_PENDENTE
+    )
+
+    conn = _connect()
+    try:
+        detalhe["solicitacoes_aguardando"] = [
+            {
+                "id": row["id"],
+                "valor": float(row["valor"]),
+                "data_pagamento": row["data_pagamento"],
+            }
+            for row in conn.execute(
+                """
+                SELECT id, valor, data_pagamento
+                FROM solicitacoes_pagamento
+                WHERE membro_id = ? AND status = 'aguardando'
+                ORDER BY data_pagamento, id
+                """,
+                (membro_id,),
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
     return detalhe
 
 
@@ -1620,8 +1962,9 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
     try:
         total_pago = float(
             conn.execute(
-                "SELECT COALESCE(SUM(valor_pago), 0) FROM pagamentos "
-                "WHERE status_pagamento = 'pago'"
+                "SELECT COALESCE(SUM(CASE WHEN status_pagamento = 'pago' "
+                "THEN valor_pago ELSE 0 END + valor_parcial), 0) "
+                "FROM pagamentos"
             ).fetchone()[0]
         )
         total_despesas = float(
@@ -1631,8 +1974,9 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
         )
         pago_mes = float(
             conn.execute(
-                "SELECT COALESCE(SUM(valor_pago), 0) FROM pagamentos "
-                "WHERE status_pagamento = 'pago' AND mes = ?",
+                "SELECT COALESCE(SUM(CASE WHEN status_pagamento = 'pago' "
+                "THEN valor_pago ELSE 0 END + valor_parcial), 0) "
+                "FROM pagamentos WHERE mes = ?",
                 (mes,),
             ).fetchone()[0]
         )
@@ -1647,7 +1991,8 @@ def obter_resumo_caixa(mes: Optional[str] = None) -> Dict[str, Any]:
             """
             SELECT mes,
                    SUM(CASE WHEN status_pagamento = 'pago'
-                            THEN valor_pago ELSE 0 END) AS arrecadado,
+                            THEN valor_pago ELSE 0 END
+                       + valor_parcial) AS arrecadado,
                    SUM(CASE WHEN status_pagamento <> 'pago'
                             THEN (CASE WHEN valor_pago > 0
                                        THEN valor_pago ELSE ? END)
