@@ -1,0 +1,44 @@
+services:
+  web:
+    build:
+      context: ./source
+      dockerfile: Dockerfile
+    container_name: grananoiz-web
+    restart: unless-stopped
+    command: ["python", "-m", "src.web"]
+    networks:
+      - proxy
+    expose:
+      - "8080"
+    volumes:
+      - /opt/grananoiz/data:/app/data
+      - /opt/grananoiz/backup:/app/backup
+    environment:
+      ENV: production
+      WEB_HOST: 0.0.0.0
+      PORT: 8080
+      DB_PATH: /app/data/caixinha.db
+      WEB_BASE_PATH: /caixinhaitcp
+      WEB_PUBLIC_URL: https://assaltarasnuvens.net.br/caixinhaitcp/
+      WEB_COOKIE_SECURE: "true"
+    env_file:
+      - .env
+    mem_limit: 192m
+    mem_reservation: 96m
+    cpus: "0.25"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/caixinhaitcp/api/health', timeout=4).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  proxy:
+    external: true
