@@ -1,0 +1,84 @@
+name: CI/CD
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - run: python -m compileall -q src scripts
+      - run: node --check web/app.js
+      - run: cp data/caixinha.db /tmp/grana-migration-test.db
+        if: hashFiles('data/caixinha.db') != ''
+
+  deploy:
+    name: Deploy to sanko
+    needs: validate
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/grana_deploy
+          chmod 600 ~/.ssh/grana_deploy
+          ssh-keyscan -H "$VPS_SSH_HOST" >> ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host sanko-deploy
+            HostName $VPS_SSH_HOST
+            User $VPS_SSH_USER
+            IdentityFile ~/.ssh/grana_deploy
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Deploy application
+        run: |
+          set -e
+          rsync -az --delete \
+            --exclude='.git' --exclude='.venv' --exclude='infra/' \
+            --exclude='data/' --exclude='backup/' --exclude='.env' \
+            -e "ssh -o StrictHostKeyChecking=yes" \
+            ./ sanko-deploy:/opt/grananoiz/source/
+          scp -o StrictHostKeyChecking=yes deploy/docker-compose.aws.yml sanko-deploy:/opt/grananoiz/docker-compose.yml
+          ssh -o StrictHostKeyChecking=yes sanko-deploy 'set -e
+            stamp=$(date -u +%Y%m%d_%H%M%S)
+            mkdir -p /opt/grananoiz/backup
+            docker exec grananoiz-web sqlite3 /app/data/caixinha.db ".backup '\''/app/backup/caixinha-ci-$stamp.db'\''" 2>/dev/null || true
+            cd /opt/grananoiz
+            docker compose -f docker-compose.yml up -d --build grananoiz-web
+          '
+
+      - name: Verify production
+        run: |
+          set -e
+          ssh -o StrictHostKeyChecking=yes sanko-deploy 'set -e
+            docker inspect grananoiz-web --format "{{.State.Health.Status}}" | grep -Fx healthy
+            docker exec grananoiz-web python3 -c "import urllib.request,json; h=json.loads(urllib.request.urlopen(\"http://127.0.0.1:8080/caixinhaitcp/api/health\",timeout=5).read()); r=json.loads(urllib.request.urlopen(\"http://127.0.0.1:8080/caixinhaitcp/api/resumo\",timeout=5).read()); assert h[\"ok\"] and r[\"app_version\"]==\"1.1.0\"; print(h); print(r[\"membros\"])"
+          '
