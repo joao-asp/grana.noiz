@@ -449,6 +449,53 @@ a { color: inherit; text-decoration: none; }
 .member-amount .label { display: block; color: var(--muted); font-size: var(--t-xs); }
 .member-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
 
+.name-pronouns { color: var(--muted); font-size: var(--t-xs); font-weight: 400; }
+.member-front-filters { width: 100%; margin-top: 8px; }
+.member-front-filters .field { min-width: 150px; }
+.member-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.member-tab {
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.member-tab.is-active { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+.member-edit-form { display: grid; gap: 14px; }
+.telegram-field { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.payment-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.payment-summary div { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+.payment-summary span { display: block; color: var(--muted); font-size: var(--t-xs); }
+.payment-summary strong { display: block; margin-top: 3px; font-family: var(--font-mono); }
+.payment-year { display: grid; gap: 8px; }
+.payment-year-title { color: var(--muted); font-size: var(--t-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.payment-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.payment-chip {
+  min-height: 54px;
+  padding: 7px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.payment-chip span, .payment-chip small { display: block; }
+.payment-chip small { margin-top: 3px; font-size: 9px; }
+.payment-chip.is-pending { border-color: color-mix(in srgb, var(--warning) 55%, var(--line)); color: var(--warning); }
+.payment-chip.is-paid { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); color: var(--ok); }
+.payment-chip.is-wait { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent); }
+.payment-chip.is-selected { outline: 2px solid var(--text); background: var(--surface); }
+.payment-register { width: 100%; margin-top: 4px; }
+
 @media (min-width: 760px) {
   .member-row { grid-template-columns: minmax(0, 1fr) auto auto; }
   .member-actions { grid-column: auto; }

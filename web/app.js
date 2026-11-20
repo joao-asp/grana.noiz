@@ -73,7 +73,7 @@ const state = {
   conferencia: [],
   reembolsos: [],
   caixa: null,
-  filters: { tipo: 'todos', q: '', semTelegram: false },
+  filters: { tipo: 'todos', q: '', semTelegram: false, equipe: '', gepa: '' },
   chat: [],
   chatBusy: false,
 };
@@ -226,11 +226,13 @@ function pct(part, total) {
   return Math.max(0, Math.min(100, Math.round((part / total) * 100)));
 }
 
+const BASE_PATH = '/caixinhaitcp';
+
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
-  const response = await fetch(path, {
+  const response = await fetch(`${BASE_PATH}${path}`, {
     method: options.method || 'GET',
     headers,
     credentials: 'same-origin',
@@ -263,11 +265,11 @@ function parseRoute() {
 }
 
 function isAdminPath() {
-  return /^\/admin\/?$/.test(window.location.pathname);
+  return new RegExp(`^${BASE_PATH}/admin/?$`).test(window.location.pathname);
 }
 
 function goPublic(route = 'inicio') {
-  window.location.href = `/#/${route}`;
+  window.location.href = `${BASE_PATH}/#/${route}`;
 }
 
 function navigate(route) {
@@ -285,7 +287,7 @@ function navigate(route) {
 
 function brandMarkup(link = true) {
   const tag = link ? 'a' : 'div';
-  const href = link ? ' href="/#/inicio"' : '';
+  const href = link ? ` href="${BASE_PATH}/#/inicio"` : '';
   return `<${tag} class="brand"${href} aria-label="grana.noiz, início">
     <span class="itcp-logo-slot" title="Espaço reservado para logo da ITCP">ITCP</span>
     <span class="brand-text">
@@ -369,7 +371,7 @@ function renderAdminLogin() {
                 ${icon('unlock')} Entrar no painel
               </button>
             </form>`}
-          <a class="card-link" href="/#/inicio" style="margin-top:12px">← Voltar ao site</a>
+          <a class="card-link" href="${BASE_PATH}/#/inicio" style="margin-top:12px">← Voltar ao site</a>
         </section>
         <p class="admin-foot">Área não indexada. Sessão protegida por cookie HttpOnly.</p>
       </div>
@@ -400,7 +402,7 @@ function renderAdminShell() {
         <div class="admin-topbar-actions">
           ${themeToggleMarkup()}
           <span class="badge badge-active" title="${esc(state.adminUser || 'gestão')}">Sessão ativa</span>
-          <a class="btn btn-ghost btn-sm" href="/#/inicio">
+          <a class="btn btn-ghost btn-sm" href="${BASE_PATH}/#/inicio">
             ${icon('home')} Ver site
           </a>
           <button class="btn btn-ghost btn-sm" type="button" data-action="admin-logout">
@@ -908,7 +910,7 @@ function renderAdminDashboard() {
           <h2 class="card-title">Pessoas cadastradas</h2>
           <p class="card-sub" id="member-count">${state.membros.length} cadastro(s)</p>
         </div>
-        <a class="btn btn-ghost btn-sm" href="/api/admin/membros/ex-bolsistas.csv">
+        <a class="btn btn-ghost btn-sm" href="${BASE_PATH}/api/admin/membros/ex-bolsistas.csv">
           ${icon('download')} Exportar ex-bolsistas
         </a>
       </div>
@@ -1079,6 +1081,25 @@ function renderToolbar(admin) {
             <button class="chip ${f.semTelegram ? 'is-active' : ''}" type="button"
                     data-action="filter-tg">Sem Telegram</button>` : ''}
         </div>` : ''}
+      ${admin ? `
+        <div class="form-inline member-front-filters">
+          <div class="field">
+            <label for="member-equipe">Equipe</label>
+            <select id="member-equipe" data-filter="equipe">
+              <option value="">Todas</option>
+              <option value="Sem equipe" ${f.equipe === 'Sem equipe' ? 'selected' : ''}>Sem equipe</option>
+              ${['Tainã','Agricultura','Loucura','Gênero','Rede'].map((v) => `<option value="${esc(v)}" ${f.equipe === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label for="member-gepa">GEPA</label>
+            <select id="member-gepa" data-filter="gepa">
+              <option value="">Todos</option>
+              <option value="Sem GEPA" ${f.gepa === 'Sem GEPA' ? 'selected' : ''}>Sem GEPA</option>
+              ${['GEPA 1','GEPA 2','GEPA 3','GEPA 4'].map((v) => `<option value="${esc(v)}" ${f.gepa === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+            </select>
+          </div>
+        </div>` : ''}
     </div>`;
 }
 
@@ -1089,8 +1110,16 @@ function membrosFiltrados() {
     if (f.tipo === 'ativos' && m.ex_bolsista) return false;
     if (f.tipo === 'ex_bolsistas' && !m.ex_bolsista) return false;
     if (f.semTelegram && m.telegram_id) return false;
+    if (f.equipe) {
+      const equipe = (m.equipe || '').trim();
+      if (f.equipe === 'Sem equipe' ? Boolean(equipe) : equipe !== f.equipe) return false;
+    }
+    if (f.gepa) {
+      const gepa = (m.gepa || '').trim();
+      if (f.gepa === 'Sem GEPA' ? Boolean(gepa) : gepa !== f.gepa) return false;
+    }
     if (!termo) return true;
-    const alvo = `${m.nome || ''} ${m.ra || ''}`.toLowerCase();
+    const alvo = `${m.nome || ''} ${m.pronomes || ''} ${m.ra || ''} ${m.modalidade || m.modalidade_bolsa || ''} ${m.equipe || ''} ${m.gepa || ''}`.toLowerCase();
     return alvo.includes(termo);
   });
 }
@@ -1102,19 +1131,21 @@ function renderMemberRows() {
   }
   return `<div class="member-list">
     ${lista.map((m) => {
-      const status = statusMeta(m.status_mes_atual);
       const isEx = Boolean(m.ex_bolsista);
+      const frente = m.equipe || m.gepa || (m.equipe === '' && m.gepa === '' ? 'Sem equipe / Sem GEPA' : 'Sem equipe / Sem GEPA');
+      const modalidade = m.modalidade || m.modalidade_bolsa || 'Sem modalidade';
+      const meta = [
+        m.ra ? `RA ${m.ra}` : 'Sem RA',
+        modalidade,
+        frente,
+      ].join(' • ');
       return `
         <div class="member-row">
           <div class="member-main">
             <div class="avatar ${isEx ? 'is-ex' : ''}">${esc(initials(m.nome))}</div>
             <div class="member-info">
-              <div class="member-name">${esc(m.nome)}</div>
-              <div class="member-meta">
-                ${state.admin ? (m.ra ? `<span>RA ${esc(m.ra)}</span>` : '<span>sem RA</span>') : ''}
-                <span>${isEx ? 'Ex-bolsista' : (m.recem_ingresso ? 'Entrou recentemente' : 'Na ITCP')}</span>
-                ${state.admin ? `<span>TG ${esc(m.telegram_id || '—')}</span>` : ''}
-              </div>
+              <div class="member-name">${esc(m.nome)}${m.pronomes ? ` <span class="name-pronouns">(${esc(m.pronomes)})</span>` : ''}</div>
+              <div class="member-meta">${esc(meta)}</div>
             </div>
           </div>
           <div class="member-side">
@@ -1122,19 +1153,12 @@ function renderMemberRows() {
               <span class="value">${brl(m.saldo_devedor || 0)}</span>
               <span class="label">${m.cotas_pendentes || 0} mês(es) em aberto</span>
             </div>
-            <span class="badge ${status.cls}">${status.label}</span>
           </div>
           ${state.admin ? `
             <div class="member-actions">
-              ${!m.telegram_id ? `
-                <button class="btn btn-ghost btn-sm" type="button"
-                        data-action="open-link" data-id="${m.id}">
-                  ${icon('link')} Vincular Telegram
-                </button>` : `
-                <span class="badge badge-active">${icon('check')} Telegram</span>`}
               <button class="btn btn-ghost btn-sm" type="button"
                       data-action="member-detail" data-id="${m.id}">
-                ${icon('info')} Detalhes
+                ${icon('info')} Abrir ficha
               </button>
             </div>` : ''}
         </div>`;
@@ -1647,12 +1671,12 @@ async function logoutAdmin() {
   state.reembolsos = [];
   state.caixa = null;
   state.resumo = null;
-  state.filters = { tipo: 'todos', q: '', semTelegram: false };
+  state.filters = { tipo: 'todos', q: '', semTelegram: false, equipe: '', gepa: '' };
   toast('Sessão encerrada.', 'info');
   render();
 }
 
-function openModal({ title, subtitle = '', body, submitLabel = 'Confirmar', danger = false, onSubmit }) {
+function openModal({ title, subtitle = '', body, submitLabel = 'Confirmar', danger = false, hideCancel = false, onSubmit }) {
   const root = $('#modal-root');
   root.innerHTML = `
     <div class="modal-backdrop" role="presentation">
@@ -1669,7 +1693,7 @@ function openModal({ title, subtitle = '', body, submitLabel = 'Confirmar', dang
         <form id="modal-form">
           <div class="modal-body">${body}</div>
           <div class="modal-actions">
-            <button class="btn btn-ghost" type="button" data-action="close-modal">Cancelar</button>
+            ${hideCancel ? '' : '<button class="btn btn-ghost" type="button" data-action="close-modal">Cancelar</button>'}
             <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" type="submit">${esc(submitLabel)}</button>
           </div>
         </form>
@@ -2109,6 +2133,19 @@ function openExcluirDespesa(id) {
   });
 }
 
+async function saveMembroFicha(id) {
+  const form = $('#member-edit-form');
+  if (!form) return;
+  const dados = Object.fromEntries(new FormData(form).entries());
+  await api(`/api/admin/membros/${id}`, {
+    method: 'PATCH',
+    body: dados,
+  });
+  toast('Alterações da ficha salvas.');
+  await refreshData();
+  await openDetalheMembro(id);
+}
+
 async function openDetalheMembro(id) {
   let m;
   try {
@@ -2118,46 +2155,88 @@ async function openDetalheMembro(id) {
     toast(error.message || 'Não foi possível carregar o membro.', 'error');
     return;
   }
-  const pagamentos = (m.pagamentos || []).slice(0, 8);
+  const pagamentosMap = new Map((m.pagamentos || []).map((p) => [p.mes, p]));
+  const anos = Array.from(new Set([
+    ...Object.keys(Object.fromEntries((m.pagamentos || []).map((p) => [p.mes.slice(0, 4), true]))),
+    String(new Date().getFullYear()),
+  ])).sort((a, b) => Number(b) - Number(a));
+  const mesesNomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const pagamentoGrids = anos.map((ano) => `
+    <div class="payment-year">
+      <div class="payment-year-title">${ano}</div>
+      <div class="payment-grid">
+        ${mesesNomes.map((nome, indice) => {
+          const mes = `${ano}-${String(indice + 1).padStart(2, '0')}`;
+          const pagamento = pagamentosMap.get(mes);
+          const status = pagamento ? pagamento.status_pagamento : 'sem_cobranca';
+          const cls = status === 'pago' ? 'is-paid' : status === 'aguardando_auditoria' ? 'is-wait' : status === 'pendente' ? 'is-pending' : '';
+          const label = status === 'pago' ? 'Pago' : status === 'aguardando_auditoria' ? 'Aguardando' : status === 'pendente' ? 'Pendente' : '—';
+          return `<button type="button" class="payment-chip ${cls}" data-action="toggle-payment-month" data-member-id="${m.id}" data-mes="${mes}" title="${label}">
+            <span>${nome}</span><small>${label}</small>
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`).join('');
+
+  const equipeAtual = m.equipe || '';
+  const gepaAtual = m.gepa || '';
+  const modalidadeAtual = m.modalidade || m.modalidade_bolsa || '';
   openModal({
     title: m.nome,
-    subtitle: `RA ${m.ra || '—'} · ${m.status_vinculo || 'ATIVO'}`,
+    subtitle: 'Ficha cadastral e pagamentos',
     submitLabel: 'Fechar',
+    hideCancel: true,
     body: `
-      <div class="stat-grid">
-        <div class="stat">
-          <span class="stat-label">Pendente</span>
-          <span class="stat-value is-tertiary">${brl(m.saldo_devedor || 0)}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Pago</span>
-          <span class="stat-value is-secondary">${brl(m.total_pago || 0)}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Meses pagos</span>
-          <span class="stat-value">${m.cotas_pagas || 0}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Aguardando</span>
-          <span class="stat-value">${m.em_auditoria || 0}</span>
-        </div>
+      <div class="member-tabs" role="tablist" aria-label="Abas da ficha">
+        <button type="button" class="member-tab is-active" data-action="member-tab" data-tab="ficha">Ficha</button>
+        <button type="button" class="member-tab" data-action="member-tab" data-tab="pagamentos">Pagamentos</button>
       </div>
-      ${pagamentos.length ? `
-        <div class="list" style="margin-top:12px">
-          ${pagamentos.map((p) => `
-            <div class="list-row">
-              <div class="list-main">
-                <div class="list-icon ${p.status_pagamento === 'pago' ? 'is-paid' : p.status_pagamento === 'aguardando_auditoria' ? 'is-wait' : ''}">
-                  ${icon(p.status_pagamento === 'pago' ? 'check' : 'receipt')}
-                </div>
-                <div>
-                  <div class="list-title">${mesLabel(p.mes)}</div>
-                  <span class="list-sub">${statusMeta(p.status_pagamento).label}</span>
-                </div>
+
+      <div class="member-tab-panel" data-member-panel="ficha">
+        <form id="member-edit-form" class="member-edit-form">
+          <div class="form-grid two">
+            <div class="field"><label for="member-nome">Nome</label><input id="member-nome" name="nome" value="${esc(m.nome || '')}" maxlength="120" required></div>
+            <div class="field"><label for="member-pronomes">Pronomes</label><input id="member-pronomes" name="pronomes" value="${esc(m.pronomes || '')}" placeholder="Ex.: ela/dela"></div>
+            <div class="field"><label for="member-ra">RA</label><input id="member-ra" name="ra" value="${esc(m.ra || '')}" inputmode="numeric"></div>
+            <div class="field"><label for="member-curso">Curso</label><input id="member-curso" name="curso" value="${esc(m.curso || '')}"></div>
+            <div class="field"><label for="member-entrada">Quando entrou</label><input id="member-entrada" name="data_entrada" value="${esc(m.data_entrada || '')}" placeholder="AAAA-MM ou semestre"></div>
+            <div class="field"><label for="member-modalidade">Modalidade</label>
+              <select id="member-modalidade" name="modalidade">
+                ${['','Bolsista BAS','Estagiário','Extensão','Extensão Pós-Graduação','BAEF','Outro'].map((v) => `<option value="${esc(v)}" ${modalidadeAtual === v ? 'selected' : ''}>${v || 'Não informada'}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label for="member-equipe">Equipe</label>
+              <select id="member-equipe-edit" name="equipe">
+                ${['','Sem equipe','Tainã','Agricultura','Loucura','Gênero','Rede'].map((v) => `<option value="${esc(v)}" ${equipeAtual === v || (!equipeAtual && v === 'Sem equipe') ? 'selected' : ''}>${v || 'Não informada'}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label for="member-gepa">GEPA</label>
+              <select id="member-gepa-edit" name="gepa">
+                ${['','Sem GEPA','GEPA 1','GEPA 2','GEPA 3','GEPA 4'].map((v) => `<option value="${esc(v)}" ${gepaAtual === v || (!gepaAtual && v === 'Sem GEPA') ? 'selected' : ''}>${v || 'Não informada'}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label for="member-contato">Contato</label><input id="member-contato" name="contato" value="${esc(m.contato || '')}" placeholder="Telefone, e-mail ou outro"></div>
+            <div class="field"><label>Telegram</label>
+              <div class="telegram-field">${m.telegram_id ? `<span class="badge badge-active">${icon('check')} Vinculado · ${esc(m.telegram_id)}</span>` : '<span class="badge badge-neutral">Não vinculado</span>'}
+                ${m.telegram_id ? '' : `<button type="button" class="btn btn-ghost btn-sm" data-action="open-link" data-id="${m.id}">${icon('link')} Vincular</button>`}
               </div>
-              <span class="list-value">${brl(p.valor_pago)}</span>
-            </div>`).join('')}
-        </div>` : '<div class="empty" style="margin-top:12px">Sem lançamentos.</div>'}
+            </div>
+          </div>
+          <div class="field"><label for="member-observacoes">Observações</label><textarea id="member-observacoes" name="observacoes" rows="3" placeholder="Informações adicionais">${esc(m.observacoes || '')}</textarea></div>
+          <button type="button" class="btn btn-primary" data-action="save-member" data-id="${m.id}">${icon('check')} Salvar alterações</button>
+        </form>
+      </div>
+
+      <div class="member-tab-panel" data-member-panel="pagamentos" hidden>
+        <div class="payment-summary">
+          <div><span>Pendente</span><strong>${brl(m.saldo_devedor || 0)}</strong></div>
+          <div><span>Pago</span><strong>${brl(m.total_pago || 0)}</strong></div>
+        </div>
+        ${pagamentoGrids}
+        <button type="button" class="btn btn-primary payment-register" data-action="register-member-payments" data-id="${m.id}">
+          ${icon('check')} Registrar meses selecionados
+        </button>
+      </div>
     `,
     onSubmit: async () => {},
   });
@@ -2288,6 +2367,35 @@ async function handleAction(element) {
       break;
     case 'member-detail':
       await openDetalheMembro(Number(element.dataset.id));
+      break;
+    case 'member-tab':
+      $$('.member-tab').forEach((tab) => tab.classList.toggle('is-active', tab === element));
+      $$('[data-member-panel]').forEach((panel) => {
+        panel.hidden = panel.dataset.memberPanel !== element.dataset.tab;
+      });
+      break;
+    case 'save-member':
+      await saveMembroFicha(Number(element.dataset.id));
+      break;
+    case 'toggle-payment-month':
+      element.classList.toggle('is-selected');
+      break;
+    case 'register-member-payments':
+      {
+        const meses = $$('.payment-chip.is-selected')
+          .map((chip) => chip.dataset.mes);
+        if (!meses.length) {
+          toast('Selecione pelo menos um mês.', 'error');
+          break;
+        }
+        await api(`/api/admin/membros/${Number(element.dataset.id)}/pagamentos`, {
+          method: 'POST',
+          body: { meses },
+        });
+        toast(`${meses.length} mês(es) registrado(s) como pago.`);
+        await refreshData();
+        await openDetalheMembro(Number(element.dataset.id));
+      }
       break;
     case 'conferir':
       {
@@ -2444,6 +2552,17 @@ document.addEventListener('input', (event) => {
   }
 });
 
+document.addEventListener('change', (event) => {
+  if (event.target.matches('[data-filter="equipe"]')) {
+    state.filters.equipe = event.target.value;
+    updateMemberList();
+  }
+  if (event.target.matches('[data-filter="gepa"]')) {
+    state.filters.gepa = event.target.value;
+    updateMemberList();
+  }
+});
+
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeModal();
 });
@@ -2512,4 +2631,12 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
 } else {
   boot();
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${BASE_PATH}/service-worker.js`, {
+      scope: `${BASE_PATH}/`,
+    }).catch(() => {});
+  });
 }
