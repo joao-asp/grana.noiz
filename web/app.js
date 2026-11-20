@@ -1443,6 +1443,7 @@ function renderMensagem(msg) {
 }
 
 function renderSobre() {
+  const appVersion = state.resumo?.app_version || '1.1.0';
   return `
     <section class="page-head">
       <div class="page-head-row">
@@ -1467,6 +1468,16 @@ function renderSobre() {
         <p>
           O objetivo é organizar contribuições mensais, pedidos de reembolso de equipes e frentes de trabalho, conciliação simples e prestação de contas do livro caixa — sem expor dívidas individuais publicamente e sem depender de planilhas confusas ou sistemas empresariais fechados.
         </p>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:14px">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Versão do aplicativo</h2>
+          <p class="card-sub">Build ativo nesta instalação.</p>
+        </div>
+        <span class="frente-tag">v${esc(appVersion)}</span>
       </div>
     </section>
 

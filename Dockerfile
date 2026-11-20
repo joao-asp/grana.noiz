@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY web/ ./web/
+COPY VERSION ./VERSION
 
 # Criar diretórios para dados
 RUN mkdir -p /app/data /app/logs /app/backup
@@ -34,7 +35,7 @@ EXPOSE 8080
 
 # Healthcheck HTTP da interface/API (compatível com Azure e Docker)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import os, urllib.request; port = os.getenv('PORT', os.getenv('WEB_PORT', '8080')); urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=4).read()" || exit 1
+  CMD python -c "import os, urllib.request; port = os.getenv('PORT', os.getenv('WEB_PORT', '8080')); base=os.getenv('WEB_BASE_PATH', '').rstrip('/'); urllib.request.urlopen(f'http://127.0.0.1:{port}{base}/api/health', timeout=4).read()" || exit 1
 
 # Por padrão sobe a interface web + API (em docker-compose o serviço bot-caixinha sobrescreve quando necessário)
 CMD ["python", "-m", "src.web"]

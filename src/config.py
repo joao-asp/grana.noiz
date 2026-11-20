@@ -7,8 +7,18 @@ Configure suas variáveis de ambiente ou use arquivo .env
 """
 
 import os
+from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+_version_file = Path(BASE_DIR) / "VERSION"
+try:
+    APP_VERSION = _version_file.read_text(encoding="utf-8").strip()
+except OSError:
+    APP_VERSION = "0.0.0"
+APP_VERSION = os.getenv("APP_VERSION", APP_VERSION)
 
 # Carregar variáveis do arquivo .env
 load_dotenv()
@@ -36,6 +46,9 @@ WEB_PORT = int(os.getenv("PORT", os.getenv("WEB_PORT", "8080")))
 
 # URL pública exibida no bot (ajuste para o domínio em produção)
 WEB_PUBLIC_URL = os.getenv("WEB_PUBLIC_URL", "http://localhost:8080")
+# Prefixo público servido pelo reverse proxy (ex.: /caixinhaitcp).
+_WEB_BASE_PATH = os.getenv("WEB_BASE_PATH", "").strip("/")
+WEB_BASE_PATH = f"/{_WEB_BASE_PATH}" if _WEB_BASE_PATH else ""
 
 # Credenciais do painel /admin.
 # Prefira WEB_ADMIN_PASSWORD_HASH em produção; WEB_ADMIN_PASSWORD é o fallback

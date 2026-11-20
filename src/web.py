@@ -787,7 +787,14 @@ class WebHandler(BaseHTTPRequestHandler):
         self, method: str, path: str, query: Dict[str, List[str]]
     ) -> None:
         if path == "/api/health" and method == "GET":
-            self._send_json(200, {"ok": True, "db": config.DB_PATH})
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "db": config.DB_PATH,
+                    "version": config.APP_VERSION,
+                },
+            )
             return
 
         if path == "/api/resumo" and method == "GET":
@@ -1040,6 +1047,7 @@ class WebHandler(BaseHTTPRequestHandler):
 
         resposta: Dict[str, Any] = {
             "mes": mes,
+            "app_version": config.APP_VERSION,
             "valor_contribuicao": config.VALOR_CONTRIBUICAO,
             "pix_chave": config.PIX_CHAVE,
             "cobranca_dia": config.COBRANCA_DIA,
