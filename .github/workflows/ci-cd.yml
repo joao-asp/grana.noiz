@@ -79,6 +79,12 @@ jobs:
         run: |
           set -e
           ssh -o StrictHostKeyChecking=yes sanko-deploy 'set -e
+            for i in $(seq 1 30); do
+              if docker inspect grananoiz-web --format "{{.State.Health.Status}}" 2>/dev/null | grep -Fxq healthy; then
+                break
+              fi
+              sleep 2
+            done
             docker inspect grananoiz-web --format "{{.State.Health.Status}}" | grep -Fx healthy
             docker exec grananoiz-web python3 -c "import urllib.request,json; h=json.loads(urllib.request.urlopen(\"http://127.0.0.1:8080/caixinhaitcp/api/health\",timeout=5).read()); r=json.loads(urllib.request.urlopen(\"http://127.0.0.1:8080/caixinhaitcp/api/resumo\",timeout=5).read()); assert h[\"ok\"] and r[\"app_version\"]==\"1.1.0\"; print(h); print(r[\"membros\"])"
           '
