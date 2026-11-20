@@ -61,7 +61,7 @@ STATUS_PAGAMENTO_VALIDOS = (
     STATUS_PAGO,
 )
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 FRENTES_EQUIPES = ("Tainã", "Agricultura", "Loucura", "Gênero", "Rede")
 FRENTES_GEPAS = ("GEPA 1", "GEPA 2", "GEPA 3", "GEPA 4")
@@ -162,7 +162,15 @@ CREATE TABLE membros (
     ex_bolsista BOOLEAN NOT NULL DEFAULT 0,
     modalidade_bolsa TEXT,
     data_inicio TEXT,
-    data_desligamento TEXT
+    data_desligamento TEXT,
+    pronomes TEXT,
+    curso TEXT,
+    data_entrada TEXT,
+    modalidade TEXT,
+    equipe TEXT,
+    gepa TEXT,
+    contato TEXT,
+    observacoes TEXT
 )
 """
 
@@ -325,13 +333,25 @@ def _rebuild_schema(
         modalidade = "modalidade_bolsa" if "modalidade_bolsa" in cols else "NULL"
         inicio = "data_inicio" if "data_inicio" in cols else "NULL"
         deslig = "data_desligamento" if "data_desligamento" in cols else "NULL"
+        pronomes = "pronomes" if "pronomes" in cols else "NULL"
+        curso = "curso" if "curso" in cols else "NULL"
+        data_entrada = "data_entrada" if "data_entrada" in cols else "NULL"
+        modalidade_nova = "modalidade" if "modalidade" in cols else "NULL"
+        equipe = "equipe" if "equipe" in cols else "NULL"
+        gepa = "gepa" if "gepa" in cols else "NULL"
+        contato = "contato" if "contato" in cols else "NULL"
+        observacoes = "observacoes" if "observacoes" in cols else "NULL"
         conn.execute(
             f"""
             INSERT INTO membros
                 (id, nome, ra, telegram_id, status_vinculo, ex_bolsista,
-                 modalidade_bolsa, data_inicio, data_desligamento)
+                 modalidade_bolsa, data_inicio, data_desligamento,
+                 pronomes, curso, data_entrada, modalidade, equipe, gepa,
+                 contato, observacoes)
             SELECT id, nome, {ra}, telegram_id, {status}, {ex},
-                   {modalidade}, {inicio}, {deslig}
+                   {modalidade}, {inicio}, {deslig},
+                   {pronomes}, {curso}, {data_entrada}, {modalidade_nova},
+                   {equipe}, {gepa}, {contato}, {observacoes}
             FROM membros_legacy
             """
         )
@@ -370,6 +390,14 @@ def _adicionar_colunas_faltantes(conn: sqlite3.Connection) -> None:
         "modalidade_bolsa": "TEXT",
         "data_inicio": "TEXT",
         "data_desligamento": "TEXT",
+        "pronomes": "TEXT",
+        "curso": "TEXT",
+        "data_entrada": "TEXT",
+        "modalidade": "TEXT",
+        "equipe": "TEXT",
+        "gepa": "TEXT",
+        "contato": "TEXT",
+        "observacoes": "TEXT",
     }
     for coluna, definicao in novas_membros.items():
         if coluna not in membros_cols:
@@ -588,6 +616,98 @@ def salvar_membro_legado(
                 ),
             )
             return int(cursor.lastrowid), True
+    finally:
+        conn.close()
+
+
+def atualizar_membro(membro_id: int, dados: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Atualiza os dados cadastrais de um membro sem alterar vínculos financeiros."""
+    campos = (
+        "nome",
+        "ra",
+        "pronomes",
+        "curso",
+        "data_entrada",
+        "modalidade",
+        "equipe",
+        "gepa",
+        "contato",
+        "observacoes",
+    )
+    nome = str(dados.get("nome") or "").strip()
+    if not nome:
+        raise ValueError("Nome do membro é obrigatório")
+
+    conn = _connect()
+    try:
+        with conn:
+            existente = conn.execute(
+                "SELECT id FROM membros WHERE id = ?", (int(membro_id),)
+            ).fetchone()
+            if existente is None:
+                return None
+
+            valores = []
+            for campo in campos:
+                valor = dados.get(campo)
+                if campo == "ra":
+                    valor = normalizar_ra(valor)
+                elif isinstance(valor, str):
+                    valor = valor.strip() or None
+                    if campo == "equipe" and valor in ("Sem equipe",):
+                        valor = None
+                    if campo == "gepa" and valor in ("Sem GEPA",):
+                        valor = None
+                valores.append(valor)
+
+            conn.execute(
+                """
+                UPDATE membros
+                SET nome = ?, ra = ?, pronomes = ?, curso = ?, data_entrada = ?,
+                    modalidade = ?, equipe = ?, gepa = ?, contato = ?, observacoes = ?
+                WHERE id = ?
+                """,
+                (*valores, int(membro_id)),
+            )
+            return buscar_membro_por_id(int(membro_id))
+    finally:
+        conn.close()
+
+
+def registrar_pagamentos_membro(
+    membro_id: int,
+    meses: List[str],
+) -> Dict[str, Any]:
+    """Marca em lote os meses selecionados como pagos e cria cobranças ausentes."""
+    agora = datetime.now().isoformat(timespec="seconds")
+    conn = _connect()
+    try:
+        with conn:
+            atualizado = 0
+            for mes in meses:
+                if not _mes_valido(mes):
+                    raise ValueError(f"Mês inválido: {mes!r}. Use o formato YYYY-MM.")
+                cursor = conn.execute(
+                    """
+                    INSERT INTO pagamentos
+                        (membro_id, mes, valor_pago, quitado, status_pagamento,
+                         data_pagamento)
+                    VALUES (?, ?, ?, 1, 'pago', ?)
+                    ON CONFLICT(membro_id, mes) DO UPDATE SET
+                        quitado = 1,
+                        status_pagamento = 'pago',
+                        data_pagamento = excluded.data_pagamento
+                    """,
+                    (
+                        int(membro_id),
+                        mes,
+                        config.VALOR_CONTRIBUICAO,
+                        agora,
+                    ),
+                )
+                if cursor.rowcount > 0:
+                    atualizado += 1
+            return {"meses": len(meses), "atualizados": atualizado}
     finally:
         conn.close()
 
@@ -2104,7 +2224,8 @@ def listar_membros_web(
             f"""
             SELECT m.id, m.nome, m.ra, m.telegram_id, m.status_vinculo,
                    m.ex_bolsista, m.modalidade_bolsa, m.data_inicio,
-                   m.data_desligamento,
+                   m.data_desligamento, m.pronomes, m.curso, m.data_entrada,
+                   m.modalidade, m.equipe, m.gepa, m.contato, m.observacoes,
                    COALESCE(SUM(CASE WHEN p.status_pagamento = 'pago'
                                      THEN 1 ELSE 0 END), 0) AS cotas_pagas,
                    COALESCE(SUM(CASE WHEN p.status_pagamento = 'pago'
