@@ -72,7 +72,7 @@ jobs:
             mkdir -p /opt/grananoiz/backup
             docker exec grananoiz-web sqlite3 /app/data/caixinha.db ".backup '\''/app/backup/caixinha-ci-$stamp.db'\''" 2>/dev/null || true
             cd /opt/grananoiz
-            docker compose -f docker-compose.yml up -d --build grananoiz-web
+            docker compose -f docker-compose.yml up -d --build web
           '
 
       - name: Verify production
