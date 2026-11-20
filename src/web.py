@@ -53,6 +53,7 @@ except ImportError:  # python web.py (com src/ no sys.path)
 logger = logging.getLogger("grana.web")
 
 WEB_DIR = Path(config.BASE_DIR) / "web"
+WEB_BASE_PATH = config.WEB_BASE_PATH.rstrip("/")
 MESES_PT = (
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
@@ -560,6 +561,19 @@ class WebHandler(BaseHTTPRequestHandler):
         path = urllib.parse.unquote(parsed.path)
         query = urllib.parse.parse_qs(parsed.query)
 
+        if WEB_BASE_PATH:
+            if path == WEB_BASE_PATH:
+                self.send_response(308)
+                self.send_header("Location", WEB_BASE_PATH + "/")
+                self._security_headers()
+                self.end_headers()
+                return
+            if path.startswith(WEB_BASE_PATH + "/"):
+                path = path[len(WEB_BASE_PATH):]
+            elif path != "/api/health":
+                self._send_json(404, {"erro": "Rota não encontrada"})
+                return
+
         try:
             if method in ("POST", "DELETE") and not self._check_origin():
                 return
@@ -934,6 +948,50 @@ class WebHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"erro": "Membro não encontrado"})
                 return
             self._send_json(200, {"membro": detalhe})
+            return
+
+        match = re.fullmatch(r"/api/admin/membros/(\d+)", path)
+        if match and method in ("PUT", "PATCH"):
+            if not self._require_admin():
+                return
+            dados = self._read_json()
+            if dados is None:
+                return
+            try:
+                membro = db.atualizar_membro(int(match.group(1)), dados)
+            except (ValueError, sqlite3.Error) as exc:
+                self._send_json(400, {"erro": str(exc)})
+                return
+            if membro is None:
+                self._send_json(404, {"erro": "Membro não encontrado"})
+                return
+            detalhe = db.obter_detalhe_membro_web(int(match.group(1)))
+            self._send_json(200, {"ok": True, "membro": detalhe})
+            return
+
+        match = re.fullmatch(r"/api/admin/membros/(\d+)/pagamentos", path)
+        if match and method == "POST":
+            if not self._require_admin():
+                return
+            dados = self._read_json()
+            if dados is None:
+                return
+            meses = dados.get("meses")
+            if not isinstance(meses, list):
+                self._send_json(400, {"erro": "Informe uma lista de meses."})
+                return
+            meses = [str(m).strip() for m in meses if str(m).strip()]
+            if not meses:
+                self._send_json(400, {"erro": "Selecione pelo menos um mês."})
+                return
+            try:
+                resultado = db.registrar_pagamentos_membro(
+                    int(match.group(1)), meses
+                )
+            except (ValueError, sqlite3.Error) as exc:
+                self._send_json(400, {"erro": str(exc)})
+                return
+            self._send_json(200, {"ok": True, **resultado})
             return
 
         match = re.fullmatch(r"/api/admin/membros/(\d+)/vincular", path)
