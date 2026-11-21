@@ -2648,6 +2648,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(`${BASE_PATH}/service-worker.js`, {
       scope: `${BASE_PATH}/`,
+      updateViaCache: 'none',
     }).catch(() => {});
   });
 }

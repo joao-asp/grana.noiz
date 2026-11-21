@@ -547,6 +547,10 @@ class WebHandler(BaseHTTPRequestHandler):
         self._responded = False
         self._dispatch("DELETE")
 
+    def do_HEAD(self) -> None:
+        self._responded = False
+        self._dispatch("HEAD")
+
     def do_OPTIONS(self) -> None:
         self._responded = True
         self.send_response(204)
@@ -580,7 +584,7 @@ class WebHandler(BaseHTTPRequestHandler):
             if path.startswith("/api/"):
                 self._handle_api(method, path.rstrip("/") or "/", query)
             else:
-                if method != "GET":
+                if method not in ("GET", "HEAD"):
                     self._send_json(405, {"erro": "Método não permitido"})
                 else:
                     self._serve_static(path)
@@ -622,7 +626,8 @@ class WebHandler(BaseHTTPRequestHandler):
             self.send_header(chave, valor)
         self._security_headers()
         self.end_headers()
-        self.wfile.write(corpo)
+        if self.command != "HEAD":
+            self.wfile.write(corpo)
 
     def _send_csv(self, nome_arquivo: str, conteudo: str) -> None:
         if self._responded:
@@ -676,6 +681,10 @@ class WebHandler(BaseHTTPRequestHandler):
             return
 
         mime = mimetypes.guess_type(str(alvo))[0] or "application/octet-stream"
+        if alvo.suffix == ".webmanifest":
+            mime = "application/manifest+json"
+        elif alvo.name == "service-worker.js":
+            mime = "application/javascript"
         if mime.startswith("text/") or mime in ("application/javascript",):
             mime += "; charset=utf-8"
 
@@ -689,7 +698,8 @@ class WebHandler(BaseHTTPRequestHandler):
             self.send_header("X-Robots-Tag", "noindex, nofollow")
         self._security_headers()
         self.end_headers()
-        self.wfile.write(corpo)
+        if self.command != "HEAD":
+            self.wfile.write(corpo)
 
     # -- auth ------------------------------------------------------------
     def _token_cookie(self) -> str:

@@ -1,0 +1,10 @@
+{
+  "name": "grana.noiz — Caixinha ITCP",
+  "short_name": "grana.noiz",
+  "start_url": "/caixinhaitcp/",
+  "scope": "/caixinhaitcp/",
+  "display": "standalone",
+  "background_color": "#F4F5F2",
+  "theme_color": "#F4F5F2",
+  "icons": []
+}
